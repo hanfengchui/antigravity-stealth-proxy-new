@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Antigravity Stealth Proxy</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e4e4e7;--muted:#71717a;--accent:#6366f1;--accent2:#818cf8;--green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+a{color:var(--accent2);text-decoration:none}
+button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:500;transition:all .15s}
+.btn{background:var(--accent);color:#fff}.btn:hover{background:var(--accent2)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-danger{background:var(--red);color:#fff}.btn-danger:hover{opacity:.85}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text)}.btn-outline:hover{border-color:var(--accent)}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 12px;font-size:13px;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+header{background:var(--card);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+header h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:8px}
+header .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+nav{display:flex;gap:4px;background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;position:sticky;top:49px;z-index:99}
+nav button{background:none;color:var(--muted);padding:12px 16px;font-size:13px;border-bottom:2px solid transparent;border-radius:0}
+nav button:hover{color:var(--text)}
+nav button.active{color:var(--accent2);border-bottom-color:var(--accent)}
+.page{display:none}.page.active{display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px}
+.card h3{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.grid{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}.grid-4{grid-template-columns:1fr 1fr 1fr 1fr}
+.stat{text-align:center}.stat .val{font-size:28px;font-weight:700;color:var(--accent2)}.stat .label{font-size:12px;color:var(--muted);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:500;border-bottom:1px solid var(--border);font-size:12px;text-transform:uppercase}
+td{padding:10px 12px;border-bottom:1px solid var(--border)}
+tr:hover{background:rgba(99,102,241,.05)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-green{background:rgba(34,197,94,.15);color:var(--green)}
+.badge-red{background:rgba(239,68,68,.15);color:var(--red)}
+.badge-yellow{background:rgba(234,179,8,.15);color:var(--yellow)}
+.badge-blue{background:rgba(59,130,246,.15);color:var(--blue)}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;width:90%;max-width:480px}
+.modal h3{margin-bottom:16px;font-size:16px}
+.modal .field{margin-bottom:12px}.modal .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.log-entry{font-family:'Fira Code',monospace;font-size:12px;padding:3px 8px;border-bottom:1px solid rgba(42,45,58,.5)}
+.log-entry.warn{color:var(--yellow)}.log-entry.error{color:var(--red)}.log-entry .ts{color:var(--muted);margin-right:8px}
+#logContainer{max-height:500px;overflow-y:auto;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);padding:12px 20px;border-radius:8px;font-size:13px;z-index:300;animation:slideIn .3s}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="statusDot"></span> Antigravity Stealth Proxy</h1>
+  <span id="headerInfo" style="font-size:12px;color:var(--muted)"></span>
+</header>
+<nav id="nav">
+  <button class="active" data-page="dashboard">Dashboard</button>
+  <button data-page="accounts">Accounts</button>
+  <button data-page="apikeys">API Keys</button>
+  <button data-page="config">Config</button>
+  <button data-page="logs">Logs</button>
+  <button data-page="quota">Quota</button>
+</nav>
+<div class="container">
+
+<!-- Dashboard Page -->
+<div class="page active" id="page-dashboard">
+  <div class="grid grid-4" style="margin-bottom:16px">
+    <div class="card stat"><div class="val" id="statAccounts">-</div><div class="label">Accounts</div></div>
+    <div class="card stat"><div class="val" id="statSessions">-</div><div class="label">Active Sessions</div></div>
+    <div class="card stat"><div class="val" id="statUptime">-</div><div class="label">Uptime (min)</div></div>
+    <div class="card stat"><div class="val" id="statKeys">-</div><div class="label">API Keys</div></div>
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>Account Health</h3>
+      <table><thead><tr><th>Email</th><th>Score</th><th>Tokens</th><th>Status</th></tr></thead>
+      <tbody id="healthTable"></tbody></table>
+    </div>
+    <div class="card">
+      <h3>Active Sessions</h3>
+      <table><thead><tr><th>Key</th><th>Age</th><th>Remaining</th></tr></thead>
+      <tbody id="sessionTable"></tbody></table>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Recent Logs</h3>
+    <div id="dashLogs" style="max-height:200px;overflow-y:auto;font-family:monospace;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- Accounts Page -->
+<div class="page" id="page-accounts">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0">Google Accounts</h3>
+      <button class="btn" onclick="showAddAccount()">+ Add Account</button>
+    </div>
+    <table><thead><tr><th>Email</th><th>Label</th><th>Status</th><th>Rate</th><th>Actions</th></tr></thead>
+    <tbody id="accountsTable"></tbody></table>
+  </div>
+</div>
+
+<!-- API Keys Page -->
+<div class="page" id="page-apikeys">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0">API Keys</h3>
+      <button class="btn" onclick="showAddKey()">+ Create Key</button>
+    </div>
+    <table><thead><tr><th>Label</th><th>Key</th><th>Binding</th><th>Actions</th></tr></thead>
+    <tbody id="keysTable"></tbody></table>
+  </div>
+  <div class="card">
+    <h3>CLI Configuration</h3>
+    <div id="cliPresets" style="font-family:monospace;font-size:13px;line-height:1.8"></div>
+  </div>
+</div>
+
+<!-- Config Page -->
+<div class="page" id="page-config">
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>Rate Limiter (Pacer)</h3>
+      <div class="field"><label>Max Requests/Min</label><input type="number" id="cfgPacerRpm" min="1" max="30"></div>
+      <div class="field" style="margin-top:8px"><label>Burst Size</label><input type="number" id="cfgPacerBurst" min="1" max="10"></div>
+      <div class="field" style="margin-top:8px"><label>Jitter Min (ms)</label><input type="number" id="cfgJitterMin" min="0"></div>
+      <div class="field" style="margin-top:8px"><label>Jitter Max (ms)</label><input type="number" id="cfgJitterMax" min="0"></div>
+    </div>
+    <div class="card">
+      <h3>Session Lifecycle</h3>
+      <div class="field"><label>Min Lifetime (hours)</label><input type="number" id="cfgSessionMin" min="0.5" max="24" step="0.5"></div>
+      <div class="field" style="margin-top:8px"><label>Max Lifetime (hours)</label><input type="number" id="cfgSessionMax" min="1" max="48" step="0.5"></div>
+      <div class="field" style="margin-top:8px"><label>Restart Delay (ms)</label><input type="number" id="cfgRestartDelay" min="1000"></div>
+    </div>
+    <div class="card">
+      <h3>Retry</h3>
+      <div class="field"><label>Max Retries</label><input type="number" id="cfgRetryMax" min="0" max="5"></div>
+      <div class="field" style="margin-top:8px"><label>Wait Before Switch (ms)</label><input type="number" id="cfgWaitSwitch" min="0"></div>
+    </div>
+    <div class="card">
+      <h3>Heartbeat</h3>
+      <div class="field"><label>Enabled</label><select id="cfgHeartbeat"><option value="true">Yes</option><option value="false">No</option></select></div>
+      <div class="field" style="margin-top:8px"><label>Interval (minutes)</label><input type="number" id="cfgHeartbeatInt" min="5" max="120"></div>
+    </div>
+  </div>
+  <div style="text-align:right;margin-top:8px">
+    <button class="btn" onclick="saveConfig()">Save Config</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:8px">Restart service to apply changes</span>
+  </div>
+</div>
+
+<!-- Logs Page -->
+<div class="page" id="page-logs">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">Live Logs</h3>
+      <div style="display:flex;gap:8px">
+        <select id="logLevel" style="width:auto"><option value="all">All</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select>
+        <button class="btn-outline btn-sm" onclick="clearLogs()">Clear</button>
+        <button class="btn btn-sm" id="logStreamBtn" onclick="toggleLogStream()">Start Stream</button>
+      </div>
+    </div>
+    <div id="logContainer"></div>
+  </div>
+</div>
+
+<!-- Quota Page -->
+<div class="page" id="page-quota">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">Model Quotas</h3>
+      <button class="btn btn-sm" onclick="loadQuota()">Refresh</button>
+    </div>
+    <div id="quotaInfo" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>
+    <table><thead><tr><th>Model</th><th>Remaining</th><th>Reset</th><th>Max Tokens</th></tr></thead>
+    <tbody id="quotaTable"></tbody></table>
+  </div>
+</div>
+
+</div><!-- /container -->
+<!-- Modals -->
+<div class="modal-overlay" id="modalAddAccount">
+  <div class="modal">
+    <h3>Add Google Account</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Login via OAuth to add a Google account with Antigravity access.</p>
+    <div id="oauthStep1">
+      <button class="btn" onclick="startOAuth()" style="width:100%">Open Google Login</button>
+    </div>
+    <div id="oauthStep2" style="display:none">
+      <div class="field"><label>Authorization Code (paste from popup)</label><input id="oauthCode" placeholder="4/0A..."></div>
+      <div class="actions">
+        <button class="btn-outline" onclick="closeModal('modalAddAccount')">Cancel</button>
+        <button class="btn" onclick="completeOAuth()">Complete Login</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalAddKey">
+  <div class="modal">
+    <h3>Create API Key</h3>
+    <div class="field"><label>Label</label><input id="keyLabel" placeholder="user1"></div>
+    <div class="field"><label>Primary Account</label><select id="keyPrimary"></select></div>
+    <div class="field"><label>Backup Account (optional)</label><select id="keyBackup"><option value="">None</option></select></div>
+    <div class="actions">
+      <button class="btn-outline" onclick="closeModal('modalAddKey')">Cancel</button>
+      <button class="btn" onclick="createKey()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalShowKey">
+  <div class="modal">
+    <h3>API Key Created</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Copy this key now. It won't be shown again in full.</p>
+    <input id="newKeyDisplay" readonly style="font-family:monospace;font-size:14px;text-align:center">
+    <div class="actions"><button class="btn" onclick="copyKey()">Copy & Close</button></div>
+  </div>
+</div>
+<script>
+// ============ Navigation ============
+const nav = document.getElementById('nav');
+nav.addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  nav.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + e.target.dataset.page).classList.add('active');
+  if (e.target.dataset.page === 'logs' && !logStream) loadLogs();
+  if (e.target.dataset.page === 'quota') loadQuota();
+  if (e.target.dataset.page === 'config') loadConfig();
+  if (e.target.dataset.page === 'apikeys') { loadKeys(); loadPresets(); }
+  if (e.target.dataset.page === 'accounts') loadAccounts();
+});
+
+// ============ API helpers ============
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  return res.json();
+}
+function toast(msg, dur = 3000) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), dur);
+}
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ============ Dashboard ============
+async function loadDashboard() {
+  try {
+    const [cfg, settings, health, logs] = await Promise.all([
+      api('/api/config'), api('/api/settings'), api('/api/strategy/health'), api('/api/logs?level=all')
+    ]);
+    document.getElementById('statAccounts').textContent = cfg.accountCount || 0;
+    document.getElementById('statSessions').textContent = (settings.sessions || []).length;
+    document.getElementById('statUptime').textContent = Math.round((settings.uptime || 0) / 60);
+    document.getElementById('statKeys').textContent = (cfg.apiKeys || []).length;
+    document.getElementById('headerInfo').textContent = 'v' + (cfg.version || '1.0.0') + ' | Node ' + (settings.nodeVersion || '?');
+
+    const ht = document.getElementById('healthTable');
+    ht.innerHTML = (health.accounts || []).map(a =>
+      '<tr><td>' + escHtml(a.email) + '</td><td>' + a.score + '</td><td>' + (a.tokens ?? '-') + '</td><td>' +
+      (a.isRateLimited ? '<span class="badge badge-red">Limited</span>' : '<span class="badge badge-green">OK</span>') + '</td></tr>'
+    ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No accounts</td></tr>';
+
+    const st = document.getElementById('sessionTable');
+    st.innerHTML = (settings.sessions || []).map(s =>
+      '<tr><td>' + escHtml(s.key) + '</td><td>' + s.ageMinutes + 'm</td><td>' + s.remainingMinutes + 'm</td></tr>'
+    ).join('') || '<tr><td colspan="3" style="color:var(--muted)">No sessions</td></tr>';
+
+    const dl = document.getElementById('dashLogs');
+    const recent = (logs.logs || []).slice(-20);
+    dl.innerHTML = recent.map(l =>
+      '<div class="log-entry ' + l.level + '"><span class="ts">' + l.timestamp.slice(11, 19) + '</span>' + escHtml(l.message) + '</div>'
+    ).join('');
+    dl.scrollTop = dl.scrollHeight;
+  } catch (e) { console.error('Dashboard load failed:', e); }
+}
+
+// ============ Accounts ============
+async function loadAccounts() {
+  const data = await api('/api/accounts');
+  const tb = document.getElementById('accountsTable');
+  tb.innerHTML = (data.accounts || []).map(a =>
+    '<tr><td>' + escHtml(a.email) + '</td><td>' + (a.label || '-') + '</td>' +
+    '<td>' + (a.enabled ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Disabled</span>') + '</td>' +
+    '<td>' + (a.pacer ? a.pacer.tokens.toFixed(1) + '/' + a.pacer.maxPerMin : '-') + '</td>' +
+    '<td><button class="btn-outline btn-sm" onclick="toggleAccount(\'' + escHtml(a.email) + '\')">' + (a.enabled ? 'Disable' : 'Enable') + '</button> ' +
+    '<button class="btn-outline btn-sm" onclick="refreshAccount(\'' + escHtml(a.email) + '\')">Refresh</button> ' +
+    '<button class="btn-danger btn-sm" onclick="deleteAccount(\'' + escHtml(a.email) + '\')">Remove</button></td></tr>'
+  ).join('') || '<tr><td colspan="5" style="color:var(--muted)">No accounts configured</td></tr>';
+}
+async function toggleAccount(email) {
+  await api('/api/accounts/' + encodeURIComponent(email) + '/toggle', { method: 'POST' });
+  toast('Account toggled'); loadAccounts(); loadDashboard();
+}
+async function refreshAccount(email) {
+  await api('/api/accounts/' + encodeURIComponent(email) + '/refresh', { method: 'POST' });
+  toast('Token refreshed');
+}
+async function deleteAccount(email) {
+  if (!confirm('Remove account ' + email + '?')) return;
+  await api('/api/accounts/' + encodeURIComponent(email), { method: 'DELETE' });
+  toast('Account removed'); loadAccounts(); loadDashboard();
+}
+// ============ OAuth Flow ============
+let oauthState = null;
+function showAddAccount() {
+  document.getElementById('oauthStep1').style.display = '';
+  document.getElementById('oauthStep2').style.display = 'none';
+  document.getElementById('modalAddAccount').classList.add('show');
+}
+async function startOAuth() {
+  const data = await api('/api/auth/url');
+  oauthState = data.state;
+  const w = window.open(data.url, 'oauth', 'width=500,height=700');
+  document.getElementById('oauthStep1').style.display = 'none';
+  document.getElementById('oauthStep2').style.display = '';
+  window.addEventListener('message', function handler(e) {
+    if (e.data && e.data.type === 'oauth-callback') {
+      document.getElementById('oauthCode').value = e.data.code;
+      window.removeEventListener('message', handler);
+    }
+  });
+}
+async function completeOAuth() {
+  const code = document.getElementById('oauthCode').value.trim();
+  if (!code) { toast('Please paste the authorization code'); return; }
+  try {
+    const res = await api('/api/auth/complete', {
+      method: 'POST', body: JSON.stringify({ code, state: oauthState })
+    });
+    if (res.success) {
+      toast('Account added: ' + res.email);
+      closeModal('modalAddAccount');
+      loadAccounts(); loadDashboard();
+    } else { toast('Error: ' + (res.error || 'Unknown')); }
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+// ============ API Keys ============
+async function loadKeys() {
+  const data = await api('/api/apikeys');
+  const tb = document.getElementById('keysTable');
+  tb.innerHTML = (data.keys || []).map(k =>
+    '<tr><td>' + escHtml(k.label) + '</td><td style="font-family:monospace;font-size:12px">' + escHtml(k.key) + '</td>' +
+    '<td>' + (k.binding ? escHtml(k.binding.primary) + (k.binding.backup ? ' / ' + escHtml(k.binding.backup) : '') : '<span style="color:var(--muted)">auto</span>') + '</td>' +
+    '<td><button class="btn-danger btn-sm" onclick="deleteKey(\'' + escHtml(k.label) + '\')">Delete</button></td></tr>'
+  ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No API keys</td></tr>';
+}
+async function showAddKey() {
+  const accts = await api('/api/accounts');
+  const emails = (accts.accounts || []).map(a => a.email);
+  const sel1 = document.getElementById('keyPrimary');
+  const sel2 = document.getElementById('keyBackup');
+  sel1.innerHTML = emails.map(e => '<option value="' + escHtml(e) + '">' + escHtml(e) + '</option>').join('');
+  sel2.innerHTML = '<option value="">None</option>' + emails.map(e => '<option value="' + escHtml(e) + '">' + escHtml(e) + '</option>').join('');
+  document.getElementById('modalAddKey').classList.add('show');
+}
+async function createKey() {
+  const label = document.getElementById('keyLabel').value.trim();
+  const primary = document.getElementById('keyPrimary').value;
+  const backup = document.getElementById('keyBackup').value;
+  const res = await api('/api/apikeys', {
+    method: 'POST', body: JSON.stringify({ label: label || undefined, primaryAccount: primary, backupAccount: backup || undefined })
+  });
+  if (res.success) {
+    closeModal('modalAddKey');
+    document.getElementById('newKeyDisplay').value = res.key;
+    document.getElementById('modalShowKey').classList.add('show');
+    loadKeys();
+  } else { toast('Error: ' + (res.error || 'Unknown')); }
+}
+function copyKey() {
+  const inp = document.getElementById('newKeyDisplay');
+  inp.select(); document.execCommand('copy');
+  toast('Key copied to clipboard');
+  closeModal('modalShowKey');
+}
+async function deleteKey(label) {
+  if (!confirm('Delete key "' + label + '"?')) return;
+  await api('/api/apikeys/' + encodeURIComponent(label), { method: 'DELETE' });
+  toast('Key deleted'); loadKeys();
+}
+async function loadPresets() {
+  const data = await api('/api/claude/presets');
+  const el = document.getElementById('cliPresets');
+  el.innerHTML = (data.presets || []).map(p =>
+    '<div style="margin-bottom:12px;padding:12px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">' +
+    '<div style="font-weight:600;margin-bottom:6px">' + escHtml(p.name) + '</div>' +
+    Object.entries(p.config).map(([k,v]) => '<div>export ' + k + '=' + escHtml(v) + '</div>').join('') +
+    '</div>'
+  ).join('') || '<div style="color:var(--muted)">No presets</div>';
+}
+
+// ============ Config ============
+async function loadConfig() {
+  const data = await api('/api/config');
+  document.getElementById('cfgPacerRpm').value = data.pacer?.maxRequestsPerMinute || 5;
+  document.getElementById('cfgPacerBurst').value = data.pacer?.burstSize || 3;
+  document.getElementById('cfgJitterMin').value = data.pacer?.jitterMinMs || 1000;
+  document.getElementById('cfgJitterMax').value = data.pacer?.jitterMaxMs || 4000;
+  document.getElementById('cfgSessionMin').value = (data.session?.minLifetimeMs || 7200000) / 3600000;
+  document.getElementById('cfgSessionMax').value = (data.session?.maxLifetimeMs || 21600000) / 3600000;
+  document.getElementById('cfgRestartDelay').value = data.session?.restartDelayMs || 10000;
+  document.getElementById('cfgRetryMax').value = data.retry?.maxRetries || 2;
+  document.getElementById('cfgWaitSwitch').value = data.retry?.waitBeforeSwitch || 60000;
+  document.getElementById('cfgHeartbeat').value = String(data.heartbeat?.enabled !== false);
+  document.getElementById('cfgHeartbeatInt').value = (data.heartbeat?.intervalMs || 1800000) / 60000;
+}
+async function saveConfig() {
+  const body = {
+    pacer: {
+      maxRequestsPerMinute: +document.getElementById('cfgPacerRpm').value,
+      burstSize: +document.getElementById('cfgPacerBurst').value,
+      jitterMinMs: +document.getElementById('cfgJitterMin').value,
+      jitterMaxMs: +document.getElementById('cfgJitterMax').value
+    },
+    session: {
+      minLifetimeMs: +document.getElementById('cfgSessionMin').value * 3600000,
+      maxLifetimeMs: +document.getElementById('cfgSessionMax').value * 3600000,
+      restartDelayMs: +document.getElementById('cfgRestartDelay').value
+    },
+    retry: {
+      maxRetries: +document.getElementById('cfgRetryMax').value,
+      waitBeforeSwitch: +document.getElementById('cfgWaitSwitch').value
+    },
+    heartbeat: {
+      enabled: document.getElementById('cfgHeartbeat').value === 'true',
+      intervalMs: +document.getElementById('cfgHeartbeatInt').value * 60000
+    }
+  };
+  const res = await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
+  toast(res.message || 'Config saved');
+}
+// ============ Logs ============
+let logStream = null;
+async function loadLogs() {
+  const level = document.getElementById('logLevel').value;
+  const data = await api('/api/logs?level=' + level);
+  const c = document.getElementById('logContainer');
+  c.innerHTML = (data.logs || []).map(l =>
+    '<div class="log-entry ' + l.level + '"><span class="ts">' + l.timestamp.slice(11,19) + '</span>' + escHtml(l.message) + '</div>'
+  ).join('');
+  c.scrollTop = c.scrollHeight;
+}
+function toggleLogStream() {
+  const btn = document.getElementById('logStreamBtn');
+  if (logStream) {
+    logStream.close(); logStream = null;
+    btn.textContent = 'Start Stream'; btn.className = 'btn btn-sm';
+    return;
+  }
+  logStream = new EventSource('/api/logs/stream');
+  btn.textContent = 'Stop Stream'; btn.className = 'btn-danger btn-sm';
+  logStream.onmessage = function(e) {
+    try {
+      const l = JSON.parse(e.data);
+      const level = document.getElementById('logLevel').value;
+      if (level !== 'all' && l.level !== level) return;
+      const c = document.getElementById('logContainer');
+      const div = document.createElement('div');
+      div.className = 'log-entry ' + l.level;
+      div.innerHTML = '<span class="ts">' + l.timestamp.slice(11,19) + '</span>' + escHtml(l.message);
+      c.appendChild(div);
+      if (c.children.length > 500) c.removeChild(c.firstChild);
+      c.scrollTop = c.scrollHeight;
+    } catch(ex) {}
+  };
+  logStream.onerror = function() { logStream.close(); logStream = null; btn.textContent = 'Start Stream'; btn.className = 'btn btn-sm'; };
+}
+function clearLogs() { document.getElementById('logContainer').innerHTML = ''; }
+
+// ============ Quota ============
+async function loadQuota() {
+  const tb = document.getElementById('quotaTable');
+  const info = document.getElementById('quotaInfo');
+  tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">Loading...</td></tr>';
+  try {
+    const data = await api('/api/quota');
+    if (data.error) { tb.innerHTML = '<tr><td colspan="4" style="color:var(--red)">' + escHtml(data.error).slice(0,200) + '</td></tr>'; return; }
+    info.textContent = 'Account: ' + (data.account || '?') + ' | Fetched: ' + (data.fetchedAt || '?');
+    const quotas = data.quotas || {};
+    const rows = Object.entries(quotas).map(([model, q]) => {
+      const pct = q.remainingFraction != null ? Math.round(q.remainingFraction * 100) : null;
+      const badge = pct == null ? '<span class="badge badge-blue">N/A</span>' :
+        pct > 50 ? '<span class="badge badge-green">' + pct + '%</span>' :
+        pct > 20 ? '<span class="badge badge-yellow">' + pct + '%</span>' :
+        '<span class="badge badge-red">' + pct + '%</span>';
+      const reset = q.resetTime ? new Date(q.resetTime).toLocaleString() : '-';
+      return '<tr><td style="font-family:monospace">' + escHtml(model) + '</td><td>' + badge + '</td><td>' + reset + '</td><td>' + (q.maxOutputTokens || '-') + '</td></tr>';
+    });
+    tb.innerHTML = rows.join('') || '<tr><td colspan="4" style="color:var(--muted)">No quota data</td></tr>';
+  } catch(e) { tb.innerHTML = '<tr><td colspan="4" style="color:var(--red)">' + escHtml(e.message) + '</td></tr>'; }
+}
+
+// ============ Modals ============
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('show'); });
+});
+
+// ============ Init ============
+loadDashboard();
+setInterval(loadDashboard, 30000);
+</script>
+</body>
+</html>

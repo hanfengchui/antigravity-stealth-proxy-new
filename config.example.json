@@ -1,0 +1,43 @@
+{
+  "port": 8080,
+  "host": "0.0.0.0",
+
+  "apiKeys": {
+    "user1": "sk-user1-change-me",
+    "user2": "sk-user2-change-me"
+  },
+
+  "accounts": [
+    { "email": "account1@gmail.com", "refreshToken": "PASTE_REFRESH_TOKEN_HERE", "enabled": true },
+    { "email": "account2@gmail.com", "refreshToken": "PASTE_REFRESH_TOKEN_HERE", "enabled": true }
+  ],
+
+  "userBindings": {
+    "sk-user1-change-me": { "primary": "account1@gmail.com", "backup": "account2@gmail.com" },
+    "sk-user2-change-me": { "primary": "account2@gmail.com", "backup": "account1@gmail.com" }
+  },
+
+  "pacer": {
+    "maxRequestsPerMinute": 5,
+    "burstSize": 3,
+    "jitterMinMs": 1000,
+    "jitterMaxMs": 4000
+  },
+
+  "session": {
+    "minLifetimeMs": 7200000,
+    "maxLifetimeMs": 21600000,
+    "restartDelayMs": 10000
+  },
+
+  "retry": {
+    "maxRetries": 2,
+    "waitBeforeSwitch": 60000,
+    "maxWaitMs": 120000
+  },
+
+  "heartbeat": {
+    "enabled": true,
+    "intervalMs": 1800000
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "antigravity-stealth-proxy",
+  "version": "1.0.0",
+  "description": "Stealth Antigravity reverse proxy with anti-detection measures",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "add-account": "node scripts/add-account.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "express": "^5.2.1",
+    "undici": "^7.22.0"
+  }
+}

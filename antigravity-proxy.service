@@ -1,0 +1,15 @@
+[Unit]
+Description=Antigravity Stealth Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/antigravity-stealth-proxy
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
