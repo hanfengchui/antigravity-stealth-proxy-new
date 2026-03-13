@@ -11,6 +11,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { getAccessToken, initTokenStore, setAccount, getAccountEmails, invalidateToken } from '../auth/token-store.js';
 import { refreshAccessToken, startOAuthLogin, getUserInfo } from '../auth/oauth.js';
+import { proxyFetch } from '../http-client.js';
 import { getSessionStats } from '../fingerprint/session-lifecycle.js';
 import { getPacerStats } from '../pacer/token-bucket.js';
 import { checkDailyLimit, getDailyStats } from '../pacer/daily-limit.js';
@@ -177,7 +178,7 @@ export function mountWebUI(app) {
       const port = config.oauth.callbackPort;
 
       // Exchange code for tokens
-      const tokenRes = await fetch(config.oauth.tokenUrl, {
+      const tokenRes = await proxyFetch(config.oauth.tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -200,7 +201,7 @@ export function mountWebUI(app) {
       }
 
       // Get user email
-      const userRes = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+      const userRes = await proxyFetch('https://www.googleapis.com/oauth2/v1/userinfo', {
         headers: { Authorization: `Bearer ${tokens.access_token}` }
       });
       const userInfo = await userRes.json();
@@ -405,7 +406,7 @@ export function mountWebUI(app) {
       const email = accounts[0].email;
       const token = await getAccessToken(email);
 
-      const apiRes = await fetch('https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels', {
+      const apiRes = await proxyFetch('https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
