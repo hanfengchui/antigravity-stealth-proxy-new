@@ -124,7 +124,7 @@ async function sendEventBatch(email) {
     'User-Agent': 'antigravity/' + fp.antigravityVersion + ' ' + fp.platformString,
     'X-Client-Name': 'antigravity',
     'X-Client-Version': fp.antigravityVersion,
-    'x-goog-api-client': 'gl-node/' + fp.nodeVersion + ' ' + fp.grpcCombo
+    'x-goog-api-client': 'gl-go/' + fp.goVersion + ' gccl/' + fp.gcclVersion
   };
 
   try {
@@ -196,7 +196,7 @@ async function fetchExperimentConfigs(email) {
     'User-Agent': 'antigravity/' + fp.antigravityVersion + ' ' + fp.platformString,
     'X-Client-Name': 'antigravity',
     'X-Client-Version': fp.antigravityVersion,
-    'x-goog-api-client': 'gl-node/' + fp.nodeVersion + ' ' + fp.grpcCombo
+    'x-goog-api-client': 'gl-go/' + fp.goVersion + ' gccl/' + fp.gcclVersion
   };
 
   try {

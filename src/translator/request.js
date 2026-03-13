@@ -43,8 +43,8 @@ export function buildCloudCodeRequest(anthropicReq, projectId, sessionKey, sessi
     model,
     request: googleRequest,
     userAgent: 'antigravity',
-    requestType: 'agent',
-    requestId: `agent-${randomUUID()}`
+    requestType: 'REQUEST_TYPE_CASCADE',
+    requestId: randomUUID()
   };
 }
 

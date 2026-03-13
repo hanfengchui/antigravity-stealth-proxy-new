@@ -97,7 +97,7 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
     await sleep(config.session.restartDelayMs);
     const retrySession = getSession(sessionKey, projectId);
     if (retrySession.isRestarting) {
-      throw new ProxyError(503, 'overloaded_error', 'Session restarting, please retry');
+      throw new ProxyError(503, 'overloaded_error', 'The server is temporarily overloaded. Please try again later.');
     }
     Object.assign(session, retrySession);
   }
@@ -148,18 +148,18 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
           markCooldown(email, resetMs);
           notifyFailure(apiKey);
           throw new ProxyError(429, 'rate_limit_error',
-            `Rate limited. Retry after ${Math.ceil(resetMs / 1000)}s`,
+            'Number of request tokens has exceeded your per-model rate limit.',
             { 'retry-after': Math.ceil(resetMs / 1000).toString() }
           );
         }
 
         if (statusCode === 403) {
           notifyFailure(apiKey);
-          throw new ProxyError(403, 'authentication_error', `Account access denied`);
+          throw new ProxyError(403, 'authentication_error', 'Your API key does not have permission to use the specified resource.');
         }
 
         if (statusCode === 400) {
-          throw new ProxyError(400, 'invalid_request_error', errorText.slice(0, 500));
+          throw new ProxyError(400, 'invalid_request_error', 'There was an issue with the format or content of your request.');
         }
 
         // Server error - try next endpoint
@@ -184,7 +184,7 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
   throw new ProxyError(
     lastError?.status || 502,
     'api_error',
-    `All endpoints failed. Please try again later.`
+    'An error occurred while processing your request.'
   );
 }
 

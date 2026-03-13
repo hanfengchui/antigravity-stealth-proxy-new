@@ -413,7 +413,7 @@ export function mountWebUI(app) {
           'Content-Type': 'application/json',
           'X-Client-Name': 'antigravity',
           'X-Client-Version': '1.107.0',
-          'x-goog-api-client': 'gl-node/18.18.2 fire/0.8.6 grpc/1.10.x',
+          'x-goog-api-client': 'gl-go/1.24.2 gccl/0.20.0',
           'User-Agent': 'antigravity/1.107.0 linux/amd64'
         },
         body: JSON.stringify({})

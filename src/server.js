@@ -45,7 +45,7 @@ app.post('/v1/messages', authMiddleware, async (req, res) => {
     if (!email) {
       return res.status(503).json({
         type: 'error',
-        error: { type: 'overloaded_error', message: 'No accounts available' }
+        error: { type: 'overloaded_error', message: 'Anthropic is temporarily overloaded. Please try again later.' }
       });
     }
 
@@ -65,7 +65,7 @@ app.post('/v1/messages', authMiddleware, async (req, res) => {
         type: 'error',
         error: {
           type: 'rate_limit_error',
-          message: `Daily request limit reached (${dailyCheck.limit}/day). Resets at UTC midnight.`
+          message: 'Number of request tokens has exceeded your per-model rate limit.'
         }
       });
     }
@@ -99,7 +99,7 @@ app.post('/v1/messages', authMiddleware, async (req, res) => {
       if (!res.headersSent) {
         return res.status(500).json({
           type: 'error',
-          error: { type: 'api_error', message: 'An unexpected error occurred. Please try again later.' }
+          error: { type: 'api_error', message: 'An error occurred while processing your request.' }
         });
       }
     }

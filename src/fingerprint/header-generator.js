@@ -4,6 +4,7 @@
  * Version pools are configurable via config.json (versionPools)
  */
 
+import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 
 // Default version pools (used when config.versionPools is not set)
@@ -19,37 +20,30 @@ const DEFAULT_VSCODE_VERSIONS = [
   '1.97.0', '1.97.1', '1.98.0'
 ];
 
-const DEFAULT_NODE_VERSIONS = [
-  '18.18.2', '18.19.0', '18.19.1', '18.20.0', '18.20.2', '18.20.4',
-  '20.11.0', '20.11.1', '20.12.0', '20.12.2', '20.13.1', '20.14.0',
-  '22.11.0', '22.12.0'
+// Go runtime versions (real Antigravity binary is written in Go)
+const DEFAULT_GO_VERSIONS = [
+  '1.23.0', '1.23.1', '1.23.2', '1.23.3', '1.23.4',
+  '1.24.0', '1.24.1', '1.24.2'
+];
+
+// Google Cloud Client Library (gccl) versions
+const DEFAULT_GCCL_VERSIONS = [
+  '0.18.0', '0.19.0', '0.19.1', '0.20.0', '0.20.1', '0.21.0'
 ];
 
 // Resolved version pools: config overrides > defaults
 const ANTIGRAVITY_VERSIONS = config.versionPools?.antigravity || DEFAULT_ANTIGRAVITY_VERSIONS;
 const VSCODE_VERSIONS = config.versionPools?.vscode || DEFAULT_VSCODE_VERSIONS;
-const NODE_VERSIONS = config.versionPools?.node || DEFAULT_NODE_VERSIONS;
+const GO_VERSIONS = config.versionPools?.go || DEFAULT_GO_VERSIONS;
+const GCCL_VERSIONS = config.versionPools?.gccl || DEFAULT_GCCL_VERSIONS;
 
-// Firebase/gRPC version combos seen in the wild
-const GRPC_COMBOS = [
-  'fire/0.8.6 grpc/1.10.x',
-  'fire/0.8.7 grpc/1.10.x',
-  'fire/0.8.8 grpc/1.10.x',
-  'fire/0.9.0 grpc/1.10.x',
-  'fire/0.9.1 grpc/1.10.x',
-  'fire/0.8.6 grpc/1.11.x',
-  'fire/0.8.7 grpc/1.11.x',
-  'fire/0.9.0 grpc/1.11.x'
-];
-
-// Simulated platform diversity (server always reports as one of these)
-// Real binary uses: darwin/arm64, darwin/x64, linux/x64, win32/x64
-// (Node.js os.platform() + process.arch format, NOT friendly names)
+// Platform pool using Go's runtime.GOOS/runtime.GOARCH format (NOT Node.js format)
+// Real binary: darwin/arm64, darwin/amd64, linux/amd64, windows/amd64
 const PLATFORM_POOL = [
   { str: 'darwin/arm64', enum: 2 },
-  { str: 'darwin/x64', enum: 1 },
-  { str: 'linux/x64', enum: 3 },
-  { str: 'win32/x64', enum: 5 },
+  { str: 'darwin/amd64', enum: 1 },
+  { str: 'linux/amd64', enum: 3 },
+  { str: 'windows/amd64', enum: 5 },
 ];
 
 // Pick a random simulated platform (not tied to actual server OS)
@@ -81,8 +75,8 @@ export function getSessionFingerprint(sessionKey) {
   const fp = {
     antigravityVersion: randomPick(ANTIGRAVITY_VERSIONS),
     vscodeVersion: randomPick(VSCODE_VERSIONS),
-    nodeVersion: randomPick(NODE_VERSIONS),
-    grpcCombo: randomPick(GRPC_COMBOS),
+    goVersion: randomPick(GO_VERSIONS),
+    gcclVersion: randomPick(GCCL_VERSIONS),
     platformString: plat.str,
     platformEnum: plat.enum,
     createdAt: Date.now()
@@ -149,8 +143,9 @@ export function buildHeaders(accessToken, sessionKey, model, accept = 'text/even
     'User-Agent': userAgent,
     'X-Client-Name': 'antigravity',
     'X-Client-Version': fp.antigravityVersion,
-    'x-goog-api-client': `gl-node/${fp.nodeVersion} ${fp.grpcCombo}`,
-    'x-server-timeout': '600'
+    'x-goog-api-client': `gl-go/${fp.goVersion} gccl/${fp.gcclVersion}`,
+    'x-server-timeout': '600',
+    'x-cloudaicompanion-trace-id': randomUUID()
   };
 
   if (sessionId) {
