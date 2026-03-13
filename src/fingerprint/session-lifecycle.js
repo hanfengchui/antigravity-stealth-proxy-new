@@ -52,7 +52,7 @@ export function getSession(sessionKey, projectId = config.api.defaultProjectId) 
  */
 function createSession(sessionKey, projectId) {
   const lifetime = randomBetween(config.session.minLifetimeMs, config.session.maxLifetimeMs);
-  const sessionId = `${randomUUID()}-${Date.now()}`;
+  const sessionId = randomUUID();
 
   const session = {
     sessionId,

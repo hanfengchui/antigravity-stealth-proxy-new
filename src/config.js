@@ -113,7 +113,12 @@ export const config = {
   },
 
   // Version pools (override defaults in header-generator.js)
-  versionPools: merged.versionPools || null
+  versionPools: merged.versionPools || null,
+
+  // Outbound proxy for API requests (residential IP / Cloudflare WARP)
+  // Supports HTTP/HTTPS/SOCKS5 proxies
+  // Example: "socks5://127.0.0.1:40000" or "http://user:pass@proxy.example.com:8080"
+  outboundProxy: process.env.OUTBOUND_PROXY || merged.outboundProxy || null
 };
 
 export default config;

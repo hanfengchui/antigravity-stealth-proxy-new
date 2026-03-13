@@ -5,6 +5,7 @@
 
 import { config } from '../config.js';
 import { getAccessToken } from './token-store.js';
+import { proxyFetch } from '../http-client.js';
 
 // Cache: email -> { projectId, tier, discoveredAt }
 const projectCache = new Map();
@@ -30,7 +31,7 @@ export async function discoverProjectId(email) {
 
   for (const endpoint of endpoints) {
     try {
-      const res = await fetch(`${endpoint}/v1internal:loadCodeAssist`, {
+      const res = await proxyFetch(`${endpoint}/v1internal:loadCodeAssist`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

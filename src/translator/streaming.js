@@ -4,7 +4,7 @@
  * Uses undici connection pool for persistent connections (reduces TLS fingerprint exposure)
  */
 
-import { Pool } from 'undici';
+import { Pool, ProxyAgent } from 'undici';
 import { config } from '../config.js';
 import { getAccessToken, invalidateToken } from '../auth/token-store.js';
 import { discoverProjectId, getProjectInfo, invalidateProject } from '../auth/project-discovery.js';
@@ -20,25 +20,47 @@ import { markCooldown, notifySuccess, notifyFailure } from '../routing/user-rout
 // Connection pools per endpoint (persistent TCP connections, reduces TLS handshake frequency)
 const connectionPools = new Map();
 
+// Shared ProxyAgent if outbound proxy is configured
+let proxyAgent = null;
+
 /**
- * Get or create a connection pool for an endpoint
+ * Get the dispatcher for making requests.
+ * If outbound proxy is configured, uses ProxyAgent (all requests go through proxy).
+ * Otherwise, uses per-endpoint Pool for persistent connections.
  * @param {string} endpoint - base URL
- * @returns {Pool}
+ * @returns {{ dispatcher: Pool | ProxyAgent, needsFullUrl: boolean }}
  */
-function getPool(endpoint) {
+function getDispatcher(endpoint) {
+  // Proxy mode: single ProxyAgent handles all endpoints
+  if (config.outboundProxy) {
+    if (!proxyAgent) {
+      proxyAgent = new ProxyAgent({
+        uri: config.outboundProxy,
+        keepAliveTimeout: 60000,
+        keepAliveMaxTimeout: 300000,
+        connect: {
+          rejectUnauthorized: true
+        }
+      });
+      console.log(`[Stream] Using outbound proxy: ${config.outboundProxy.replace(/\/\/.*@/, '//***@')}`);
+    }
+    return { dispatcher: proxyAgent, needsFullUrl: true };
+  }
+
+  // Direct mode: per-endpoint connection pool
   if (!connectionPools.has(endpoint)) {
     const pool = new Pool(endpoint, {
-      connections: 4,           // max concurrent connections per endpoint
-      pipelining: 1,            // no HTTP pipelining (API doesn't support it)
-      keepAliveTimeout: 60000,  // 60s keep-alive
-      keepAliveMaxTimeout: 300000, // 5min max
+      connections: 4,
+      pipelining: 1,
+      keepAliveTimeout: 60000,
+      keepAliveMaxTimeout: 300000,
       connect: {
         rejectUnauthorized: true
       }
     });
     connectionPools.set(endpoint, pool);
   }
-  return connectionPools.get(endpoint);
+  return { dispatcher: connectionPools.get(endpoint), needsFullUrl: false };
 }
 
 /**
@@ -50,7 +72,8 @@ function getPool(endpoint) {
  * @param {Object} [pacingContext] - Pacing context for intelligent delay
  */
 export async function streamMessage(anthropicReq, email, apiKey, res, pacingContext) {
-  const sessionKey = `${apiKey}:${email}`;
+  // Use email as session key (shared with heartbeat daemon for unified fingerprint)
+  const sessionKey = email;
   const requestedModel = anthropicReq.model || 'claude-sonnet-4-6-thinking';
 
   // Apply rate limiting + context-aware jitter
@@ -92,9 +115,10 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
   for (const endpoint of config.api.endpoints) {
     try {
       const requestPath = '/v1internal:streamGenerateContent?alt=sse';
-      const pool = getPool(endpoint);
+      const { dispatcher, needsFullUrl } = getDispatcher(endpoint);
 
-      const { statusCode, headers: respHeaders, body } = await pool.request({
+      const { statusCode, headers: respHeaders, body } = await dispatcher.request({
+        origin: needsFullUrl ? endpoint : undefined,
         path: requestPath,
         method: 'POST',
         headers,

@@ -4,6 +4,7 @@
  */
 
 import { config } from '../config.js';
+import { proxyFetch } from '../http-client.js';
 
 /**
  * Exchange a refresh token for a fresh access token
@@ -11,7 +12,7 @@ import { config } from '../config.js';
  * @returns {Promise<{accessToken: string, expiresAt: number}>}
  */
 export async function refreshAccessToken(refreshToken) {
-  const res = await fetch(config.oauth.tokenUrl, {
+  const res = await proxyFetch(config.oauth.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -77,7 +78,7 @@ export async function startOAuthLogin() {
         }
 
         // Exchange code for tokens
-        const tokenRes = await fetch(config.oauth.tokenUrl, {
+        const tokenRes = await proxyFetch(config.oauth.tokenUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
@@ -101,7 +102,7 @@ export async function startOAuthLogin() {
         const tokens = await tokenRes.json();
 
         // Get user email
-        const userRes = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+        const userRes = await proxyFetch('https://www.googleapis.com/oauth2/v1/userinfo', {
           headers: { Authorization: `Bearer ${tokens.access_token}` }
         });
         const userInfo = await userRes.json();
@@ -141,7 +142,7 @@ export async function startOAuthLogin() {
  * @returns {Promise<{email: string, name: string}>}
  */
 export async function getUserInfo(accessToken) {
-  const res = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+  const res = await proxyFetch('https://www.googleapis.com/oauth2/v1/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
   if (!res.ok) throw new Error(`Failed to get user info: ${res.status}`);
