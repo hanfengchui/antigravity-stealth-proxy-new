@@ -20,6 +20,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 header{background:var(--card);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
 header h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:8px}
 header .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+header .right{display:flex;align-items:center;gap:12px}
 nav{display:flex;gap:4px;background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;position:sticky;top:49px;z-index:99}
 nav button{background:none;color:var(--muted);padding:12px 16px;font-size:13px;border-bottom:2px solid transparent;border-radius:0}
 nav button:hover{color:var(--text)}
@@ -50,466 +51,257 @@ tr:hover{background:rgba(99,102,241,.05)}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);padding:12px 20px;border-radius:8px;font-size:13px;z-index:300;animation:slideIn .3s}
 @keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
 @media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
+#loginOverlay{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;align-items:center;justify-content:center}
+#loginOverlay .login-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:90%;max-width:380px;text-align:center}
+#loginOverlay h2{font-size:22px;margin-bottom:8px}
+#loginOverlay p{color:var(--muted);font-size:13px;margin-bottom:24px}
+#loginOverlay input{margin-bottom:16px;text-align:center;font-size:15px;padding:12px}
+#loginOverlay .error{color:var(--red);font-size:12px;margin-bottom:12px;display:none}
 </style>
 </head>
 <body>
+<div id="loginOverlay" style="display:none">
+  <div class="login-box">
+    <h2>Antigravity Proxy</h2>
+    <p>请输入管理密码</p>
+    <div class="error" id="loginError">密码错误，请重试</div>
+    <input type="password" id="loginPassword" placeholder="管理密码" onkeydown="if(event.key==='Enter')doLogin()">
+    <br>
+    <button class="btn" onclick="doLogin()" style="width:100%;padding:12px;font-size:15px">登 录</button>
+  </div>
+</div>
+<div id="mainApp" style="display:none">
 <header>
   <h1><span class="dot" id="statusDot"></span> Antigravity Stealth Proxy</h1>
-  <span id="headerInfo" style="font-size:12px;color:var(--muted)"></span>
+  <div class="right">
+    <span id="headerInfo" style="font-size:12px;color:var(--muted)"></span>
+    <button class="btn-outline btn-sm" onclick="doLogout()" id="logoutBtn" style="display:none">退出登录</button>
+  </div>
 </header>
 <nav id="nav">
-  <button class="active" data-page="dashboard">Dashboard</button>
-  <button data-page="accounts">Accounts</button>
-  <button data-page="apikeys">API Keys</button>
-  <button data-page="config">Config</button>
-  <button data-page="logs">Logs</button>
-  <button data-page="quota">Quota</button>
+  <button class="active" data-page="dashboard">仪表盘</button>
+  <button data-page="accounts">账户管理</button>
+  <button data-page="apikeys">API 密钥</button>
+  <button data-page="config">系统配置</button>
+  <button data-page="logs">实时日志</button>
+  <button data-page="usage">用量统计</button>
+  <button data-page="quota">模型配额</button>
 </nav>
 <div class="container">
-
-<!-- Dashboard Page -->
 <div class="page active" id="page-dashboard">
   <div class="grid grid-4" style="margin-bottom:16px">
-    <div class="card stat"><div class="val" id="statAccounts">-</div><div class="label">Accounts</div></div>
-    <div class="card stat"><div class="val" id="statSessions">-</div><div class="label">Active Sessions</div></div>
-    <div class="card stat"><div class="val" id="statUptime">-</div><div class="label">Uptime (min)</div></div>
-    <div class="card stat"><div class="val" id="statKeys">-</div><div class="label">API Keys</div></div>
+    <div class="card stat"><div class="val" id="statAccounts">-</div><div class="label">账户数</div></div>
+    <div class="card stat"><div class="val" id="statSessions">-</div><div class="label">活跃会话</div></div>
+    <div class="card stat"><div class="val" id="statUptime">-</div><div class="label">运行时间(分钟)</div></div>
+    <div class="card stat"><div class="val" id="statKeys">-</div><div class="label">API 密钥数</div></div>
   </div>
   <div class="grid grid-2">
-    <div class="card">
-      <h3>Account Health</h3>
-      <table><thead><tr><th>Email</th><th>Score</th><th>Tokens</th><th>Status</th></tr></thead>
+    <div class="card"><h3>账户健康状态</h3>
+      <table><thead><tr><th>邮箱</th><th>评分</th><th>令牌</th><th>状态</th></tr></thead>
       <tbody id="healthTable"></tbody></table>
     </div>
-    <div class="card">
-      <h3>Active Sessions</h3>
-      <table><thead><tr><th>Key</th><th>Age</th><th>Remaining</th></tr></thead>
+    <div class="card"><h3>每日用量</h3>
+      <table><thead><tr><th>邮箱</th><th>已用</th><th>上限</th><th>进度</th></tr></thead>
+      <tbody id="dailyUsageTable"></tbody></table>
+    </div>
+  </div>
+  <div class="grid grid-2">
+    <div class="card"><h3>活跃会话</h3>
+      <table><thead><tr><th>会话键</th><th>已运行</th><th>剩余</th></tr></thead>
       <tbody id="sessionTable"></tbody></table>
     </div>
   </div>
-  <div class="card">
-    <h3>Recent Logs</h3>
+  <div class="card"><h3>最近日志</h3>
     <div id="dashLogs" style="max-height:200px;overflow-y:auto;font-family:monospace;font-size:12px"></div>
   </div>
 </div>
-
-<!-- Accounts Page -->
 <div class="page" id="page-accounts">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="margin:0">Google Accounts</h3>
-      <button class="btn" onclick="showAddAccount()">+ Add Account</button>
+      <h3 style="margin:0">Google 账户</h3>
+      <button class="btn" onclick="showAddAccount()">+ 添加账户</button>
     </div>
-    <table><thead><tr><th>Email</th><th>Label</th><th>Status</th><th>Rate</th><th>Actions</th></tr></thead>
+    <table><thead><tr><th>邮箱</th><th>标签</th><th>状态</th><th>频率</th><th>操作</th></tr></thead>
     <tbody id="accountsTable"></tbody></table>
   </div>
 </div>
-
-<!-- API Keys Page -->
 <div class="page" id="page-apikeys">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="margin:0">API Keys</h3>
-      <button class="btn" onclick="showAddKey()">+ Create Key</button>
+      <h3 style="margin:0">API 密钥</h3>
+      <button class="btn" onclick="showAddKey()">+ 创建密钥</button>
     </div>
-    <table><thead><tr><th>Label</th><th>Key</th><th>Binding</th><th>Actions</th></tr></thead>
+    <table><thead><tr><th>标签</th><th>密钥</th><th>绑定账户</th><th>操作</th></tr></thead>
     <tbody id="keysTable"></tbody></table>
   </div>
-  <div class="card">
-    <h3>CLI Configuration</h3>
+  <div class="card"><h3>CLI 使用配置</h3>
     <div id="cliPresets" style="font-family:monospace;font-size:13px;line-height:1.8"></div>
   </div>
 </div>
-
-<!-- Config Page -->
 <div class="page" id="page-config">
   <div class="grid grid-2">
-    <div class="card">
-      <h3>Rate Limiter (Pacer)</h3>
-      <div class="field"><label>Max Requests/Min</label><input type="number" id="cfgPacerRpm" min="1" max="30"></div>
-      <div class="field" style="margin-top:8px"><label>Burst Size</label><input type="number" id="cfgPacerBurst" min="1" max="10"></div>
-      <div class="field" style="margin-top:8px"><label>Jitter Min (ms)</label><input type="number" id="cfgJitterMin" min="0"></div>
-      <div class="field" style="margin-top:8px"><label>Jitter Max (ms)</label><input type="number" id="cfgJitterMax" min="0"></div>
+    <div class="card"><h3>请求频率控制</h3>
+      <div class="field"><label>最大请求数/分钟</label><input type="number" id="cfgPacerRpm" min="1" max="30"></div>
+      <div class="field" style="margin-top:8px"><label>突发大小</label><input type="number" id="cfgPacerBurst" min="1" max="10"></div>
+      <div class="field" style="margin-top:8px"><label>抖动最小值(ms)</label><input type="number" id="cfgJitterMin" min="0"></div>
+      <div class="field" style="margin-top:8px"><label>抖动最大值(ms)</label><input type="number" id="cfgJitterMax" min="0"></div>
+      <div class="field" style="margin-top:8px"><label>每日请求上限/账户(0=无限)</label><input type="number" id="cfgDailyLimit" min="0"></div>
     </div>
-    <div class="card">
-      <h3>Session Lifecycle</h3>
-      <div class="field"><label>Min Lifetime (hours)</label><input type="number" id="cfgSessionMin" min="0.5" max="24" step="0.5"></div>
-      <div class="field" style="margin-top:8px"><label>Max Lifetime (hours)</label><input type="number" id="cfgSessionMax" min="1" max="48" step="0.5"></div>
-      <div class="field" style="margin-top:8px"><label>Restart Delay (ms)</label><input type="number" id="cfgRestartDelay" min="1000"></div>
+    <div class="card"><h3>会话生命周期</h3>
+      <div class="field"><label>最短存活(小时)</label><input type="number" id="cfgSessionMin" min="0.5" max="24" step="0.5"></div>
+      <div class="field" style="margin-top:8px"><label>最长存活(小时)</label><input type="number" id="cfgSessionMax" min="1" max="48" step="0.5"></div>
+      <div class="field" style="margin-top:8px"><label>重启延迟(ms)</label><input type="number" id="cfgRestartDelay" min="1000"></div>
     </div>
-    <div class="card">
-      <h3>Retry</h3>
-      <div class="field"><label>Max Retries</label><input type="number" id="cfgRetryMax" min="0" max="5"></div>
-      <div class="field" style="margin-top:8px"><label>Wait Before Switch (ms)</label><input type="number" id="cfgWaitSwitch" min="0"></div>
+    <div class="card"><h3>重试策略</h3>
+      <div class="field"><label>最大重试次数</label><input type="number" id="cfgRetryMax" min="0" max="5"></div>
+      <div class="field" style="margin-top:8px"><label>切换账户前等待(ms)</label><input type="number" id="cfgWaitSwitch" min="0"></div>
     </div>
-    <div class="card">
-      <h3>Heartbeat</h3>
-      <div class="field"><label>Enabled</label><select id="cfgHeartbeat"><option value="true">Yes</option><option value="false">No</option></select></div>
-      <div class="field" style="margin-top:8px"><label>Interval (minutes)</label><input type="number" id="cfgHeartbeatInt" min="5" max="120"></div>
+    <div class="card"><h3>心跳检测</h3>
+      <div class="field"><label>启用</label><select id="cfgHeartbeat"><option value="true">是</option><option value="false">否</option></select></div>
+      <div class="field" style="margin-top:8px"><label>间隔(分钟)</label><input type="number" id="cfgHeartbeatInt" min="5" max="120"></div>
     </div>
+  </div>
+  <div class="card"><h3>管理密码</h3>
+    <div class="field"><label>设置密码(留空则关闭密码保护)</label><input type="text" id="cfgAdminPwd" placeholder="留空则关闭密码保护"></div>
   </div>
   <div style="text-align:right;margin-top:8px">
-    <button class="btn" onclick="saveConfig()">Save Config</button>
-    <span style="font-size:12px;color:var(--muted);margin-left:8px">Restart service to apply changes</span>
+    <button class="btn" onclick="saveConfig()">保存配置</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:8px">部分配置需重启服务生效</span>
   </div>
 </div>
-
-<!-- Logs Page -->
 <div class="page" id="page-logs">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <h3 style="margin:0">Live Logs</h3>
+      <h3 style="margin:0">实时日志</h3>
       <div style="display:flex;gap:8px">
-        <select id="logLevel" style="width:auto"><option value="all">All</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select>
-        <button class="btn-outline btn-sm" onclick="clearLogs()">Clear</button>
-        <button class="btn btn-sm" id="logStreamBtn" onclick="toggleLogStream()">Start Stream</button>
+        <select id="logLevel" style="width:auto"><option value="all">全部</option><option value="info">信息</option><option value="warn">警告</option><option value="error">错误</option></select>
+        <button class="btn-outline btn-sm" onclick="clearLogs()">清空</button>
+        <button class="btn btn-sm" id="logStreamBtn" onclick="toggleLogStream()">开始推送</button>
       </div>
     </div>
     <div id="logContainer"></div>
   </div>
 </div>
-
-<!-- Quota Page -->
+<div class="page" id="page-usage">
+  <div class="grid grid-4" style="margin-bottom:16px">
+    <div class="card stat"><div class="val" id="usageReqs1h">-</div><div class="label">最近1小时请求</div></div>
+    <div class="card stat"><div class="val" id="usageTokens1h">-</div><div class="label">最近1小时Token</div></div>
+    <div class="card stat"><div class="val" id="usageReqs24h">-</div><div class="label">最近24小时请求</div></div>
+    <div class="card stat"><div class="val" id="usageTokens24h">-</div><div class="label">最近24小时Token</div></div>
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0">模型用量分布</h3>
+        <select id="usageHours" style="width:auto" onchange="loadUsage()">
+          <option value="1">最近1小时</option>
+          <option value="24" selected>最近24小时</option>
+          <option value="168">最近7天</option>
+        </select>
+      </div>
+      <table><thead><tr><th>模型</th><th>请求数</th><th>输入Token</th><th>输出Token</th><th>平均耗时</th></tr></thead>
+      <tbody id="usageModelTable"></tbody></table>
+    </div>
+    <div class="card">
+      <h3>汇总统计</h3>
+      <table>
+        <thead><tr><th>时间范围</th><th>请求数</th><th>输入Token</th><th>输出Token</th><th>总Token</th></tr></thead>
+        <tbody id="usageSummaryTable"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">最近请求记录</h3>
+      <button class="btn btn-sm" onclick="loadUsage()">刷新</button>
+    </div>
+    <div style="max-height:400px;overflow-y:auto">
+    <table><thead><tr><th>时间</th><th>模型</th><th>账户</th><th>输入</th><th>输出</th><th>总计</th><th>耗时</th></tr></thead>
+    <tbody id="usageRecordTable"></tbody></table>
+    </div>
+  </div>
+</div>
 <div class="page" id="page-quota">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <h3 style="margin:0">Model Quotas</h3>
-      <button class="btn btn-sm" onclick="loadQuota()">Refresh</button>
+      <h3 style="margin:0">模型配额</h3>
+      <button class="btn btn-sm" onclick="loadQuota()">刷新</button>
     </div>
     <div id="quotaInfo" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>
-    <table><thead><tr><th>Model</th><th>Remaining</th><th>Reset</th><th>Max Tokens</th></tr></thead>
+    <table><thead><tr><th>模型</th><th>剩余额度</th><th>重置时间</th><th>最大令牌数</th></tr></thead>
     <tbody id="quotaTable"></tbody></table>
   </div>
 </div>
-
-</div><!-- /container -->
-<!-- Modals -->
+</div>
+</div>
 <div class="modal-overlay" id="modalAddAccount">
   <div class="modal">
-    <h3>Add Google Account</h3>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Login via OAuth to add a Google account with Antigravity access.</p>
-    <div id="oauthStep1">
-      <button class="btn" onclick="startOAuth()" style="width:100%">Open Google Login</button>
-    </div>
+    <h3>添加 Google 账户</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">通过 OAuth 登录添加 Google 账户。</p>
+    <div id="oauthStep1"><button class="btn" onclick="startOAuth()" style="width:100%">打开 Google 登录</button></div>
     <div id="oauthStep2" style="display:none">
-      <div class="field"><label>Authorization Code (paste from popup)</label><input id="oauthCode" placeholder="4/0A..."></div>
+      <div class="field"><label>授权码(从弹窗复制粘贴)</label><input id="oauthCode" placeholder="4/0A..."></div>
       <div class="actions">
-        <button class="btn-outline" onclick="closeModal('modalAddAccount')">Cancel</button>
-        <button class="btn" onclick="completeOAuth()">Complete Login</button>
+        <button class="btn-outline" onclick="closeModal('modalAddAccount')">取消</button>
+        <button class="btn" onclick="completeOAuth()">完成登录</button>
       </div>
     </div>
   </div>
 </div>
-
 <div class="modal-overlay" id="modalAddKey">
   <div class="modal">
-    <h3>Create API Key</h3>
-    <div class="field"><label>Label</label><input id="keyLabel" placeholder="user1"></div>
-    <div class="field"><label>Primary Account</label><select id="keyPrimary"></select></div>
-    <div class="field"><label>Backup Account (optional)</label><select id="keyBackup"><option value="">None</option></select></div>
+    <h3>创建 API 密钥</h3>
+    <div class="field"><label>标签</label><input id="keyLabel" placeholder="user1"></div>
+    <div class="field"><label>主账户</label><select id="keyPrimary"></select></div>
+    <div class="field"><label>备用账户(可选)</label><select id="keyBackup"><option value="">无</option></select></div>
     <div class="actions">
-      <button class="btn-outline" onclick="closeModal('modalAddKey')">Cancel</button>
-      <button class="btn" onclick="createKey()">Create</button>
+      <button class="btn-outline" onclick="closeModal('modalAddKey')">取消</button>
+      <button class="btn" onclick="createKey()">创建</button>
     </div>
   </div>
 </div>
-
 <div class="modal-overlay" id="modalShowKey">
   <div class="modal">
-    <h3>API Key Created</h3>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Copy this key now. It won't be shown again in full.</p>
+    <h3>API 密钥已创建</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">请立即复制，之后不再完整显示。</p>
     <input id="newKeyDisplay" readonly style="font-family:monospace;font-size:14px;text-align:center">
-    <div class="actions"><button class="btn" onclick="copyKey()">Copy & Close</button></div>
+    <div class="actions"><button class="btn" onclick="copyKey()">复制并关闭</button></div>
   </div>
 </div>
 <script>
-// ============ Navigation ============
-const nav = document.getElementById('nav');
-nav.addEventListener('click', e => {
-  if (e.target.tagName !== 'BUTTON') return;
-  nav.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-  e.target.classList.add('active');
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById('page-' + e.target.dataset.page).classList.add('active');
-  if (e.target.dataset.page === 'logs' && !logStream) loadLogs();
-  if (e.target.dataset.page === 'quota') loadQuota();
-  if (e.target.dataset.page === 'config') loadConfig();
-  if (e.target.dataset.page === 'apikeys') { loadKeys(); loadPresets(); }
-  if (e.target.dataset.page === 'accounts') loadAccounts();
-});
-
-// ============ API helpers ============
-async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-  return res.json();
-}
-function toast(msg, dur = 3000) {
-  const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), dur);
-}
-function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-// ============ Dashboard ============
-async function loadDashboard() {
-  try {
-    const [cfg, settings, health, logs] = await Promise.all([
-      api('/api/config'), api('/api/settings'), api('/api/strategy/health'), api('/api/logs?level=all')
-    ]);
-    document.getElementById('statAccounts').textContent = cfg.accountCount || 0;
-    document.getElementById('statSessions').textContent = (settings.sessions || []).length;
-    document.getElementById('statUptime').textContent = Math.round((settings.uptime || 0) / 60);
-    document.getElementById('statKeys').textContent = (cfg.apiKeys || []).length;
-    document.getElementById('headerInfo').textContent = 'v' + (cfg.version || '1.0.0') + ' | Node ' + (settings.nodeVersion || '?');
-
-    const ht = document.getElementById('healthTable');
-    ht.innerHTML = (health.accounts || []).map(a =>
-      '<tr><td>' + escHtml(a.email) + '</td><td>' + a.score + '</td><td>' + (a.tokens ?? '-') + '</td><td>' +
-      (a.isRateLimited ? '<span class="badge badge-red">Limited</span>' : '<span class="badge badge-green">OK</span>') + '</td></tr>'
-    ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No accounts</td></tr>';
-
-    const st = document.getElementById('sessionTable');
-    st.innerHTML = (settings.sessions || []).map(s =>
-      '<tr><td>' + escHtml(s.key) + '</td><td>' + s.ageMinutes + 'm</td><td>' + s.remainingMinutes + 'm</td></tr>'
-    ).join('') || '<tr><td colspan="3" style="color:var(--muted)">No sessions</td></tr>';
-
-    const dl = document.getElementById('dashLogs');
-    const recent = (logs.logs || []).slice(-20);
-    dl.innerHTML = recent.map(l =>
-      '<div class="log-entry ' + l.level + '"><span class="ts">' + l.timestamp.slice(11, 19) + '</span>' + escHtml(l.message) + '</div>'
-    ).join('');
-    dl.scrollTop = dl.scrollHeight;
-  } catch (e) { console.error('Dashboard load failed:', e); }
-}
-
-// ============ Accounts ============
-async function loadAccounts() {
-  const data = await api('/api/accounts');
-  const tb = document.getElementById('accountsTable');
-  tb.innerHTML = (data.accounts || []).map(a =>
-    '<tr><td>' + escHtml(a.email) + '</td><td>' + (a.label || '-') + '</td>' +
-    '<td>' + (a.enabled ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Disabled</span>') + '</td>' +
-    '<td>' + (a.pacer ? a.pacer.tokens.toFixed(1) + '/' + a.pacer.maxPerMin : '-') + '</td>' +
-    '<td><button class="btn-outline btn-sm" onclick="toggleAccount(\'' + escHtml(a.email) + '\')">' + (a.enabled ? 'Disable' : 'Enable') + '</button> ' +
-    '<button class="btn-outline btn-sm" onclick="refreshAccount(\'' + escHtml(a.email) + '\')">Refresh</button> ' +
-    '<button class="btn-danger btn-sm" onclick="deleteAccount(\'' + escHtml(a.email) + '\')">Remove</button></td></tr>'
-  ).join('') || '<tr><td colspan="5" style="color:var(--muted)">No accounts configured</td></tr>';
-}
-async function toggleAccount(email) {
-  await api('/api/accounts/' + encodeURIComponent(email) + '/toggle', { method: 'POST' });
-  toast('Account toggled'); loadAccounts(); loadDashboard();
-}
-async function refreshAccount(email) {
-  await api('/api/accounts/' + encodeURIComponent(email) + '/refresh', { method: 'POST' });
-  toast('Token refreshed');
-}
-async function deleteAccount(email) {
-  if (!confirm('Remove account ' + email + '?')) return;
-  await api('/api/accounts/' + encodeURIComponent(email), { method: 'DELETE' });
-  toast('Account removed'); loadAccounts(); loadDashboard();
-}
-// ============ OAuth Flow ============
-let oauthState = null;
-function showAddAccount() {
-  document.getElementById('oauthStep1').style.display = '';
-  document.getElementById('oauthStep2').style.display = 'none';
-  document.getElementById('modalAddAccount').classList.add('show');
-}
-async function startOAuth() {
-  const data = await api('/api/auth/url');
-  oauthState = data.state;
-  const w = window.open(data.url, 'oauth', 'width=500,height=700');
-  document.getElementById('oauthStep1').style.display = 'none';
-  document.getElementById('oauthStep2').style.display = '';
-  window.addEventListener('message', function handler(e) {
-    if (e.data && e.data.type === 'oauth-callback') {
-      document.getElementById('oauthCode').value = e.data.code;
-      window.removeEventListener('message', handler);
-    }
-  });
-}
-async function completeOAuth() {
-  const code = document.getElementById('oauthCode').value.trim();
-  if (!code) { toast('Please paste the authorization code'); return; }
-  try {
-    const res = await api('/api/auth/complete', {
-      method: 'POST', body: JSON.stringify({ code, state: oauthState })
-    });
-    if (res.success) {
-      toast('Account added: ' + res.email);
-      closeModal('modalAddAccount');
-      loadAccounts(); loadDashboard();
-    } else { toast('Error: ' + (res.error || 'Unknown')); }
-  } catch (e) { toast('Failed: ' + e.message); }
-}
-
-// ============ API Keys ============
-async function loadKeys() {
-  const data = await api('/api/apikeys');
-  const tb = document.getElementById('keysTable');
-  tb.innerHTML = (data.keys || []).map(k =>
-    '<tr><td>' + escHtml(k.label) + '</td><td style="font-family:monospace;font-size:12px">' + escHtml(k.key) + '</td>' +
-    '<td>' + (k.binding ? escHtml(k.binding.primary) + (k.binding.backup ? ' / ' + escHtml(k.binding.backup) : '') : '<span style="color:var(--muted)">auto</span>') + '</td>' +
-    '<td><button class="btn-danger btn-sm" onclick="deleteKey(\'' + escHtml(k.label) + '\')">Delete</button></td></tr>'
-  ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No API keys</td></tr>';
-}
-async function showAddKey() {
-  const accts = await api('/api/accounts');
-  const emails = (accts.accounts || []).map(a => a.email);
-  const sel1 = document.getElementById('keyPrimary');
-  const sel2 = document.getElementById('keyBackup');
-  sel1.innerHTML = emails.map(e => '<option value="' + escHtml(e) + '">' + escHtml(e) + '</option>').join('');
-  sel2.innerHTML = '<option value="">None</option>' + emails.map(e => '<option value="' + escHtml(e) + '">' + escHtml(e) + '</option>').join('');
-  document.getElementById('modalAddKey').classList.add('show');
-}
-async function createKey() {
-  const label = document.getElementById('keyLabel').value.trim();
-  const primary = document.getElementById('keyPrimary').value;
-  const backup = document.getElementById('keyBackup').value;
-  const res = await api('/api/apikeys', {
-    method: 'POST', body: JSON.stringify({ label: label || undefined, primaryAccount: primary, backupAccount: backup || undefined })
-  });
-  if (res.success) {
-    closeModal('modalAddKey');
-    document.getElementById('newKeyDisplay').value = res.key;
-    document.getElementById('modalShowKey').classList.add('show');
-    loadKeys();
-  } else { toast('Error: ' + (res.error || 'Unknown')); }
-}
-function copyKey() {
-  const inp = document.getElementById('newKeyDisplay');
-  inp.select(); document.execCommand('copy');
-  toast('Key copied to clipboard');
-  closeModal('modalShowKey');
-}
-async function deleteKey(label) {
-  if (!confirm('Delete key "' + label + '"?')) return;
-  await api('/api/apikeys/' + encodeURIComponent(label), { method: 'DELETE' });
-  toast('Key deleted'); loadKeys();
-}
-async function loadPresets() {
-  const data = await api('/api/claude/presets');
-  const el = document.getElementById('cliPresets');
-  el.innerHTML = (data.presets || []).map(p =>
-    '<div style="margin-bottom:12px;padding:12px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">' +
-    '<div style="font-weight:600;margin-bottom:6px">' + escHtml(p.name) + '</div>' +
-    Object.entries(p.config).map(([k,v]) => '<div>export ' + k + '=' + escHtml(v) + '</div>').join('') +
-    '</div>'
-  ).join('') || '<div style="color:var(--muted)">No presets</div>';
-}
-
-// ============ Config ============
-async function loadConfig() {
-  const data = await api('/api/config');
-  document.getElementById('cfgPacerRpm').value = data.pacer?.maxRequestsPerMinute || 5;
-  document.getElementById('cfgPacerBurst').value = data.pacer?.burstSize || 3;
-  document.getElementById('cfgJitterMin').value = data.pacer?.jitterMinMs || 1000;
-  document.getElementById('cfgJitterMax').value = data.pacer?.jitterMaxMs || 4000;
-  document.getElementById('cfgSessionMin').value = (data.session?.minLifetimeMs || 7200000) / 3600000;
-  document.getElementById('cfgSessionMax').value = (data.session?.maxLifetimeMs || 21600000) / 3600000;
-  document.getElementById('cfgRestartDelay').value = data.session?.restartDelayMs || 10000;
-  document.getElementById('cfgRetryMax').value = data.retry?.maxRetries || 2;
-  document.getElementById('cfgWaitSwitch').value = data.retry?.waitBeforeSwitch || 60000;
-  document.getElementById('cfgHeartbeat').value = String(data.heartbeat?.enabled !== false);
-  document.getElementById('cfgHeartbeatInt').value = (data.heartbeat?.intervalMs || 1800000) / 60000;
-}
-async function saveConfig() {
-  const body = {
-    pacer: {
-      maxRequestsPerMinute: +document.getElementById('cfgPacerRpm').value,
-      burstSize: +document.getElementById('cfgPacerBurst').value,
-      jitterMinMs: +document.getElementById('cfgJitterMin').value,
-      jitterMaxMs: +document.getElementById('cfgJitterMax').value
-    },
-    session: {
-      minLifetimeMs: +document.getElementById('cfgSessionMin').value * 3600000,
-      maxLifetimeMs: +document.getElementById('cfgSessionMax').value * 3600000,
-      restartDelayMs: +document.getElementById('cfgRestartDelay').value
-    },
-    retry: {
-      maxRetries: +document.getElementById('cfgRetryMax').value,
-      waitBeforeSwitch: +document.getElementById('cfgWaitSwitch').value
-    },
-    heartbeat: {
-      enabled: document.getElementById('cfgHeartbeat').value === 'true',
-      intervalMs: +document.getElementById('cfgHeartbeatInt').value * 60000
-    }
-  };
-  const res = await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
-  toast(res.message || 'Config saved');
-}
-// ============ Logs ============
-let logStream = null;
-async function loadLogs() {
-  const level = document.getElementById('logLevel').value;
-  const data = await api('/api/logs?level=' + level);
-  const c = document.getElementById('logContainer');
-  c.innerHTML = (data.logs || []).map(l =>
-    '<div class="log-entry ' + l.level + '"><span class="ts">' + l.timestamp.slice(11,19) + '</span>' + escHtml(l.message) + '</div>'
-  ).join('');
-  c.scrollTop = c.scrollHeight;
-}
-function toggleLogStream() {
-  const btn = document.getElementById('logStreamBtn');
-  if (logStream) {
-    logStream.close(); logStream = null;
-    btn.textContent = 'Start Stream'; btn.className = 'btn btn-sm';
-    return;
-  }
-  logStream = new EventSource('/api/logs/stream');
-  btn.textContent = 'Stop Stream'; btn.className = 'btn-danger btn-sm';
-  logStream.onmessage = function(e) {
-    try {
-      const l = JSON.parse(e.data);
-      const level = document.getElementById('logLevel').value;
-      if (level !== 'all' && l.level !== level) return;
-      const c = document.getElementById('logContainer');
-      const div = document.createElement('div');
-      div.className = 'log-entry ' + l.level;
-      div.innerHTML = '<span class="ts">' + l.timestamp.slice(11,19) + '</span>' + escHtml(l.message);
-      c.appendChild(div);
-      if (c.children.length > 500) c.removeChild(c.firstChild);
-      c.scrollTop = c.scrollHeight;
-    } catch(ex) {}
-  };
-  logStream.onerror = function() { logStream.close(); logStream = null; btn.textContent = 'Start Stream'; btn.className = 'btn btn-sm'; };
-}
-function clearLogs() { document.getElementById('logContainer').innerHTML = ''; }
-
-// ============ Quota ============
-async function loadQuota() {
-  const tb = document.getElementById('quotaTable');
-  const info = document.getElementById('quotaInfo');
-  tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">Loading...</td></tr>';
-  try {
-    const data = await api('/api/quota');
-    if (data.error) { tb.innerHTML = '<tr><td colspan="4" style="color:var(--red)">' + escHtml(data.error).slice(0,200) + '</td></tr>'; return; }
-    info.textContent = 'Account: ' + (data.account || '?') + ' | Fetched: ' + (data.fetchedAt || '?');
-    const quotas = data.quotas || {};
-    const rows = Object.entries(quotas).map(([model, q]) => {
-      const pct = q.remainingFraction != null ? Math.round(q.remainingFraction * 100) : null;
-      const badge = pct == null ? '<span class="badge badge-blue">N/A</span>' :
-        pct > 50 ? '<span class="badge badge-green">' + pct + '%</span>' :
-        pct > 20 ? '<span class="badge badge-yellow">' + pct + '%</span>' :
-        '<span class="badge badge-red">' + pct + '%</span>';
-      const reset = q.resetTime ? new Date(q.resetTime).toLocaleString() : '-';
-      return '<tr><td style="font-family:monospace">' + escHtml(model) + '</td><td>' + badge + '</td><td>' + reset + '</td><td>' + (q.maxOutputTokens || '-') + '</td></tr>';
-    });
-    tb.innerHTML = rows.join('') || '<tr><td colspan="4" style="color:var(--muted)">No quota data</td></tr>';
-  } catch(e) { tb.innerHTML = '<tr><td colspan="4" style="color:var(--red)">' + escHtml(e.message) + '</td></tr>'; }
-}
-
-// ============ Modals ============
-function closeModal(id) { document.getElementById(id).classList.remove('show'); }
-document.querySelectorAll('.modal-overlay').forEach(m => {
-  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('show'); });
-});
-
-// ============ Init ============
-loadDashboard();
-setInterval(loadDashboard, 30000);
+async function checkAuth(){try{var r=await fetch('/api/auth/check');var d=await r.json();if(d.passwordRequired&&!d.authenticated){document.getElementById('loginOverlay').style.display='flex';document.getElementById('mainApp').style.display='none';document.getElementById('loginPassword').focus()}else{document.getElementById('loginOverlay').style.display='none';document.getElementById('mainApp').style.display='';if(d.passwordRequired)document.getElementById('logoutBtn').style.display='';initApp()}}catch(e){document.getElementById('loginOverlay').style.display='none';document.getElementById('mainApp').style.display='';initApp()}}
+async function doLogin(){var p=document.getElementById('loginPassword').value;if(!p)return;try{var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});var d=await r.json();if(d.success){document.getElementById('loginOverlay').style.display='none';document.getElementById('mainApp').style.display='';document.getElementById('logoutBtn').style.display='';document.getElementById('loginError').style.display='none';initApp()}else{document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent=d.error||'密码错误'}}catch(e){document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent='连接失败: '+e.message}}
+async function doLogout(){await fetch('/api/logout',{method:'POST'});location.reload()}
+var appInit=false;function initApp(){if(appInit)return;appInit=true;loadDashboard();setInterval(loadDashboard,30000)}
+var nav=document.getElementById('nav');nav.addEventListener('click',function(e){if(e.target.tagName!=='BUTTON')return;nav.querySelectorAll('button').forEach(function(b){b.classList.remove('active')});e.target.classList.add('active');document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});document.getElementById('page-'+e.target.dataset.page).classList.add('active');if(e.target.dataset.page==='logs'&&!logStream)loadLogs();if(e.target.dataset.page==='quota')loadQuota();if(e.target.dataset.page==='config')loadConfig();if(e.target.dataset.page==='apikeys'){loadKeys();loadPresets()}if(e.target.dataset.page==='accounts')loadAccounts();if(e.target.dataset.page==='usage')loadUsage()});
+async function api(p,o){o=o||{};var r=await fetch(p,Object.assign({headers:{'Content-Type':'application/json'}},o));if(r.status===401){location.reload();return{}}return r.json()}
+function toast(m,d){d=d||3000;var t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.remove()},d)}
+function escHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+async function loadDashboard(){try{var a=await Promise.all([api('/api/config'),api('/api/settings'),api('/api/strategy/health'),api('/api/logs?level=all'),api('/api/daily-usage')]);var cfg=a[0],set=a[1],hp=a[2],lg=a[3],du=a[4];document.getElementById('statAccounts').textContent=cfg.accountCount||0;document.getElementById('statSessions').textContent=(set.sessions||[]).length;document.getElementById('statUptime').textContent=Math.round((set.uptime||0)/60);document.getElementById('statKeys').textContent=(cfg.apiKeys||[]).length;document.getElementById('headerInfo').textContent='v'+(cfg.version||'1.0.0')+' | Node '+(set.nodeVersion||'?');var ht=document.getElementById('healthTable');ht.innerHTML=(hp.accounts||[]).map(function(a){return'<tr><td>'+escHtml(a.email)+'</td><td>'+a.score+'</td><td>'+(a.tokens!=null?a.tokens:'-')+'</td><td>'+(a.isRateLimited?'<span class="badge badge-red">限速中</span>':'<span class="badge badge-green">正常</span>')+'</td></tr>'}).join('')||'<tr><td colspan="4" style="color:var(--muted)">暂无账户</td></tr>';var dt=document.getElementById('dailyUsageTable');dt.innerHTML=(du.usage||[]).map(function(u){var pct=u.percentage||0;var badge=pct>=90?'badge-red':pct>=70?'badge-yellow':'badge-green';return'<tr><td>'+escHtml(u.email)+'</td><td>'+u.used+'</td><td>'+(u.limit||'无限')+'</td><td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;background:var(--bg);border-radius:4px;height:8px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:var(--'+(pct>=90?'red':pct>=70?'yellow':'green')+');border-radius:4px"></div></div><span class="badge '+badge+'">'+pct+'%</span></div></td></tr>'}).join('')||'<tr><td colspan="4" style="color:var(--muted)">暂无数据</td></tr>';var st=document.getElementById('sessionTable');st.innerHTML=(set.sessions||[]).map(function(s){return'<tr><td>'+escHtml(s.key)+'</td><td>'+s.ageMinutes+'分</td><td>'+s.remainingMinutes+'分</td></tr>'}).join('')||'<tr><td colspan="3" style="color:var(--muted)">暂无活跃会话</td></tr>';var dl=document.getElementById('dashLogs');var rc=(lg.logs||[]).slice(-20);dl.innerHTML=rc.map(function(l){return'<div class="log-entry '+l.level+'"><span class="ts">'+l.timestamp.slice(11,19)+'</span>'+escHtml(l.message)+'</div>'}).join('');dl.scrollTop=dl.scrollHeight}catch(e){}}
+async function loadAccounts(){var d=await api('/api/accounts');var t=document.getElementById('accountsTable');t.innerHTML=(d.accounts||[]).map(function(a){return'<tr><td>'+escHtml(a.email)+'</td><td>'+(a.label||'-')+'</td><td>'+(a.enabled?'<span class="badge badge-green">启用</span>':'<span class="badge badge-red">禁用</span>')+'</td><td>'+(a.pacer?a.pacer.tokens.toFixed(1)+'/'+a.pacer.maxPerMin:'-')+'</td><td><button class="btn-outline btn-sm" onclick="toggleAccount(\''+escHtml(a.email)+'\')">'+(a.enabled?'禁用':'启用')+'</button> <button class="btn-outline btn-sm" onclick="refreshAccount(\''+escHtml(a.email)+'\')">刷新令牌</button> <button class="btn-danger btn-sm" onclick="deleteAccount(\''+escHtml(a.email)+'\')">删除</button></td></tr>'}).join('')||'<tr><td colspan="5" style="color:var(--muted)">暂无账户</td></tr>'}
+async function toggleAccount(e){await api('/api/accounts/'+encodeURIComponent(e)+'/toggle',{method:'POST'});toast('账户状态已切换');loadAccounts();loadDashboard()}
+async function refreshAccount(e){await api('/api/accounts/'+encodeURIComponent(e)+'/refresh',{method:'POST'});toast('令牌已刷新')}
+async function deleteAccount(e){if(!confirm('确定删除账户 '+e+'?'))return;await api('/api/accounts/'+encodeURIComponent(e),{method:'DELETE'});toast('账户已删除');loadAccounts();loadDashboard()}
+var oauthState=null;function showAddAccount(){document.getElementById('oauthStep1').style.display='';document.getElementById('oauthStep2').style.display='none';document.getElementById('modalAddAccount').classList.add('show')}
+async function startOAuth(){var d=await api('/api/auth/url');oauthState=d.state;window.open(d.url,'oauth','width=500,height=700');document.getElementById('oauthStep1').style.display='none';document.getElementById('oauthStep2').style.display='';window.addEventListener('message',function h(e){if(e.data&&e.data.type==='oauth-callback'){document.getElementById('oauthCode').value=e.data.code;window.removeEventListener('message',h)}})}
+async function completeOAuth(){var c=document.getElementById('oauthCode').value.trim();if(!c){toast('请粘贴授权码');return}try{var r=await api('/api/auth/complete',{method:'POST',body:JSON.stringify({code:c,state:oauthState})});if(r.success){toast('账户已添加: '+r.email);closeModal('modalAddAccount');loadAccounts();loadDashboard()}else{toast('错误: '+(r.error||'未知'))}}catch(e){toast('失败: '+e.message)}}
+async function loadKeys(){var d=await api('/api/apikeys');var t=document.getElementById('keysTable');t.innerHTML=(d.keys||[]).map(function(k){return'<tr><td>'+escHtml(k.label)+'</td><td style="font-family:monospace;font-size:12px">'+escHtml(k.key)+'</td><td>'+(k.binding?escHtml(k.binding.primary)+(k.binding.backup?' / '+escHtml(k.binding.backup):''):'<span style="color:var(--muted)">自动</span>')+'</td><td><button class="btn-danger btn-sm" onclick="deleteKey(\''+escHtml(k.label)+'\')">删除</button></td></tr>'}).join('')||'<tr><td colspan="4" style="color:var(--muted)">暂无 API 密钥</td></tr>'}
+async function showAddKey(){var a=await api('/api/accounts');var em=(a.accounts||[]).map(function(a){return a.email});var s1=document.getElementById('keyPrimary');var s2=document.getElementById('keyBackup');s1.innerHTML=em.map(function(e){return'<option value="'+escHtml(e)+'">'+escHtml(e)+'</option>'}).join('');s2.innerHTML='<option value="">无</option>'+em.map(function(e){return'<option value="'+escHtml(e)+'">'+escHtml(e)+'</option>'}).join('');document.getElementById('modalAddKey').classList.add('show')}
+async function createKey(){var l=document.getElementById('keyLabel').value.trim();var p=document.getElementById('keyPrimary').value;var b=document.getElementById('keyBackup').value;var r=await api('/api/apikeys',{method:'POST',body:JSON.stringify({label:l||undefined,primaryAccount:p,backupAccount:b||undefined})});if(r.success){closeModal('modalAddKey');document.getElementById('newKeyDisplay').value=r.key;document.getElementById('modalShowKey').classList.add('show');loadKeys()}else{toast('错误: '+(r.error||'未知'))}}
+function copyKey(){var i=document.getElementById('newKeyDisplay');i.select();document.execCommand('copy');toast('密钥已复制到剪贴板');closeModal('modalShowKey')}
+async function deleteKey(l){if(!confirm('确定删除密钥 "'+l+'"?'))return;await api('/api/apikeys/'+encodeURIComponent(l),{method:'DELETE'});toast('密钥已删除');loadKeys()}
+async function loadPresets(){var d=await api('/api/claude/presets');var el=document.getElementById('cliPresets');el.innerHTML=(d.presets||[]).map(function(p){return'<div style="margin-bottom:12px;padding:12px;background:var(--bg);border-radius:6px;border:1px solid var(--border)"><div style="font-weight:600;margin-bottom:6px">'+escHtml(p.name)+'</div>'+Object.entries(p.config).map(function(kv){return'<div>export '+kv[0]+'='+escHtml(kv[1])+'</div>'}).join('')+'</div>'}).join('')||'<div style="color:var(--muted)">暂无预设</div>'}
+async function loadConfig(){var d=await api('/api/config');document.getElementById('cfgPacerRpm').value=d.pacer?d.pacer.maxRequestsPerMinute:5;document.getElementById('cfgPacerBurst').value=d.pacer?d.pacer.burstSize:3;document.getElementById('cfgJitterMin').value=d.pacer?d.pacer.jitterMinMs:1000;document.getElementById('cfgJitterMax').value=d.pacer?d.pacer.jitterMaxMs:4000;document.getElementById('cfgDailyLimit').value=d.pacer?d.pacer.dailyLimitPerAccount||500:500;document.getElementById('cfgSessionMin').value=(d.session?d.session.minLifetimeMs:7200000)/3600000;document.getElementById('cfgSessionMax').value=(d.session?d.session.maxLifetimeMs:21600000)/3600000;document.getElementById('cfgRestartDelay').value=d.session?d.session.restartDelayMs:10000;document.getElementById('cfgRetryMax').value=d.retry?d.retry.maxRetries:2;document.getElementById('cfgWaitSwitch').value=d.retry?d.retry.waitBeforeSwitch:60000;document.getElementById('cfgHeartbeat').value=String(d.heartbeat?d.heartbeat.enabled!==false:true);document.getElementById('cfgHeartbeatInt').value=(d.heartbeat?d.heartbeat.intervalMs:1800000)/60000;document.getElementById('cfgAdminPwd').value=d.adminPassword||''}
+async function saveConfig(){var b={pacer:{maxRequestsPerMinute:+document.getElementById('cfgPacerRpm').value,burstSize:+document.getElementById('cfgPacerBurst').value,jitterMinMs:+document.getElementById('cfgJitterMin').value,jitterMaxMs:+document.getElementById('cfgJitterMax').value,dailyLimitPerAccount:+document.getElementById('cfgDailyLimit').value},session:{minLifetimeMs:+document.getElementById('cfgSessionMin').value*3600000,maxLifetimeMs:+document.getElementById('cfgSessionMax').value*3600000,restartDelayMs:+document.getElementById('cfgRestartDelay').value},retry:{maxRetries:+document.getElementById('cfgRetryMax').value,waitBeforeSwitch:+document.getElementById('cfgWaitSwitch').value},heartbeat:{enabled:document.getElementById('cfgHeartbeat').value==='true',intervalMs:+document.getElementById('cfgHeartbeatInt').value*60000},adminPassword:document.getElementById('cfgAdminPwd').value||null};var r=await api('/api/config',{method:'POST',body:JSON.stringify(b)});toast(r.message||'配置已保存')}
+var logStream=null;async function loadLogs(){var lv=document.getElementById('logLevel').value;var d=await api('/api/logs?level='+lv);var c=document.getElementById('logContainer');c.innerHTML=(d.logs||[]).map(function(l){return'<div class="log-entry '+l.level+'"><span class="ts">'+l.timestamp.slice(11,19)+'</span>'+escHtml(l.message)+'</div>'}).join('');c.scrollTop=c.scrollHeight}
+function toggleLogStream(){var btn=document.getElementById('logStreamBtn');if(logStream){logStream.close();logStream=null;btn.textContent='开始推送';btn.className='btn btn-sm';return}logStream=new EventSource('/api/logs/stream');btn.textContent='停止推送';btn.className='btn-danger btn-sm';logStream.onmessage=function(e){try{var l=JSON.parse(e.data);var lv=document.getElementById('logLevel').value;if(lv!=='all'&&l.level!==lv)return;var c=document.getElementById('logContainer');var div=document.createElement('div');div.className='log-entry '+l.level;div.innerHTML='<span class="ts">'+l.timestamp.slice(11,19)+'</span>'+escHtml(l.message);c.appendChild(div);if(c.children.length>500)c.removeChild(c.firstChild);c.scrollTop=c.scrollHeight}catch(ex){}};logStream.onerror=function(){logStream.close();logStream=null;btn.textContent='开始推送';btn.className='btn btn-sm'}}
+function clearLogs(){document.getElementById('logContainer').innerHTML=''}
+async function loadQuota(){var tb=document.getElementById('quotaTable');var info=document.getElementById('quotaInfo');tb.innerHTML='<tr><td colspan="4" style="color:var(--muted)">加载中...</td></tr>';try{var d=await api('/api/quota');if(d.error){tb.innerHTML='<tr><td colspan="4" style="color:var(--red)">'+escHtml(d.error).slice(0,200)+'</td></tr>';return}info.textContent='账户: '+(d.account||'?')+' | 查询时间: '+(d.fetchedAt||'?');var q=d.quotas||{};var rows=Object.entries(q).map(function(en){var m=en[0],v=en[1];var pct=v.remainingFraction!=null?Math.round(v.remainingFraction*100):null;var badge=pct==null?'<span class="badge badge-blue">N/A</span>':pct>50?'<span class="badge badge-green">'+pct+'%</span>':pct>20?'<span class="badge badge-yellow">'+pct+'%</span>':'<span class="badge badge-red">'+pct+'%</span>';var rst=v.resetTime?new Date(v.resetTime).toLocaleString('zh-CN'):'-';return'<tr><td style="font-family:monospace">'+escHtml(m)+'</td><td>'+badge+'</td><td>'+rst+'</td><td>'+(v.maxOutputTokens||'-')+'</td></tr>'});tb.innerHTML=rows.join('')||'<tr><td colspan="4" style="color:var(--muted)">暂无配额数据</td></tr>'}catch(e){tb.innerHTML='<tr><td colspan="4" style="color:var(--red)">'+escHtml(e.message)+'</td></tr>'}}
+function closeModal(id){document.getElementById(id).classList.remove('show')}
+document.querySelectorAll('.modal-overlay').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('show')})});
+function fmtNum(n){if(n>=1000000)return(n/1000000).toFixed(1)+'M';if(n>=1000)return(n/1000).toFixed(1)+'K';return n.toString()}
+async function loadUsage(){try{var a=await Promise.all([api('/api/usage/summary'),api('/api/usage/models?hours='+document.getElementById('usageHours').value),api('/api/usage/records?limit=50')]);var s=a[0],m=a[1],rec=a[2];document.getElementById('usageReqs1h').textContent=s.last1h?s.last1h.requests:0;document.getElementById('usageTokens1h').textContent=fmtNum(s.last1h?s.last1h.totalTokens:0);document.getElementById('usageReqs24h').textContent=s.last24h?s.last24h.requests:0;document.getElementById('usageTokens24h').textContent=fmtNum(s.last24h?s.last24h.totalTokens:0);var st=document.getElementById('usageSummaryTable');var ranges=[['最近1小时',s.last1h],['最近24小时',s.last24h],['最近7天',s.last7d],['全部',s.all]];st.innerHTML=ranges.map(function(r){var d=r[1]||{};return'<tr><td>'+r[0]+'</td><td>'+fmtNum(d.requests||0)+'</td><td>'+fmtNum(d.inputTokens||0)+'</td><td>'+fmtNum(d.outputTokens||0)+'</td><td>'+fmtNum(d.totalTokens||0)+'</td></tr>'}).join('');var mt=document.getElementById('usageModelTable');var models=m.models||{};var mrows=Object.entries(models).sort(function(a,b){return b[1].requests-a[1].requests}).map(function(en){var k=en[0],v=en[1];return'<tr><td style="font-family:monospace">'+escHtml(k)+'</td><td>'+v.requests+'</td><td>'+fmtNum(v.inputTokens)+'</td><td>'+fmtNum(v.outputTokens)+'</td><td>'+(v.requests?Math.round(v.totalDurationMs/v.requests/1000)+'s':'-')+'</td></tr>'});mt.innerHTML=mrows.join('')||'<tr><td colspan="5" style="color:var(--muted)">暂无数据</td></tr>';var rt=document.getElementById('usageRecordTable');rt.innerHTML=(rec.records||[]).map(function(r){return'<tr><td style="font-size:11px">'+r.time.slice(11,19)+'</td><td style="font-family:monospace;font-size:11px">'+escHtml(r.model)+'</td><td style="font-size:11px">'+escHtml(r.account)+'</td><td>'+fmtNum(r.input)+'</td><td>'+fmtNum(r.output)+'</td><td style="font-weight:600">'+fmtNum(r.total)+'</td><td>'+(r.duration?Math.round(r.duration/1000)+'s':'-')+'</td></tr>'}).join('')||'<tr><td colspan="7" style="color:var(--muted)">暂无请求记录</td></tr>'}catch(e){}}
+checkAuth();
 </script>
 </body>
 </html>

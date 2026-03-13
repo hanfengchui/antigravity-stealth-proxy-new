@@ -50,6 +50,7 @@ export const config = {
     burstSize: merged.pacer?.burstSize || 3,
     jitterMinMs: merged.pacer?.jitterMinMs || 1000,
     jitterMaxMs: merged.pacer?.jitterMaxMs || 4000,
+    dailyLimitPerAccount: merged.pacer?.dailyLimitPerAccount || 500,
     ...merged.pacer
   },
 
@@ -109,7 +110,10 @@ export const config = {
     ],
     defaultProjectId: 'rising-fact-p41fc',
     ...merged.api
-  }
+  },
+
+  // Version pools (override defaults in header-generator.js)
+  versionPools: merged.versionPools || null
 };
 
 export default config;

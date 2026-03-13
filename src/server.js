@@ -10,6 +10,7 @@ import { routeRequest, getRoutingStats } from './routing/user-router.js';
 import { streamMessage, ProxyError } from './translator/streaming.js';
 import { getSessionStats } from './fingerprint/session-lifecycle.js';
 import { getPacerStats } from './pacer/token-bucket.js';
+import { checkDailyLimit, getDailyStats } from './pacer/daily-limit.js';
 import { getAdvertisedModels } from './translator/model-map.js';
 import { mountWebUI } from './webui/index.js';
 
@@ -57,10 +58,30 @@ app.post('/v1/messages', authMiddleware, async (req, res) => {
       console.log(`[Server] Using backup account for ${req.user}`);
     }
 
+    // Check daily limit
+    const dailyCheck = checkDailyLimit(email);
+    if (!dailyCheck.allowed) {
+      return res.status(429).json({
+        type: 'error',
+        error: {
+          type: 'rate_limit_error',
+          message: `Daily request limit reached (${dailyCheck.limit}/day). Resets at UTC midnight.`
+        }
+      });
+    }
+
     // Force streaming (Claude Code always uses streaming)
     req.body.stream = true;
 
-    await streamMessage(req.body, email, req.apiKey, res);
+    // Build pacing context from request for intelligent delay
+    const messages = req.body.messages || [];
+    const lastMessage = messages[messages.length - 1];
+    const pacingContext = {
+      messageCount: messages.length,
+      hasToolResult: lastMessage?.role === 'tool' || lastMessage?.content?.some?.(b => b.type === 'tool_result')
+    };
+
+    await streamMessage(req.body, email, req.apiKey, res, pacingContext);
 
   } catch (e) {
     if (e instanceof ProxyError) {
@@ -78,7 +99,7 @@ app.post('/v1/messages', authMiddleware, async (req, res) => {
       if (!res.headersSent) {
         return res.status(500).json({
           type: 'error',
-          error: { type: 'api_error', message: 'Internal proxy error' }
+          error: { type: 'api_error', message: 'An unexpected error occurred. Please try again later.' }
         });
       }
     }
@@ -106,15 +127,18 @@ app.get('/health', (req, res) => {
  * GET /admin/status - Detailed status (no auth for local access)
  */
 app.get('/admin/status', (req, res) => {
+  const dailyStats = getDailyStats();
   res.json({
     uptime: Math.round(process.uptime()),
     sessions: getSessionStats(),
     routing: getRoutingStats(),
+    dailyUsage: dailyStats,
     accounts: config.accounts
       .filter(a => a.enabled !== false)
       .map(a => ({
         email: a.email,
-        pacer: getPacerStats(a.email)
+        pacer: getPacerStats(a.email),
+        daily: dailyStats[a.email] || { used: 0, limit: config.pacer.dailyLimitPerAccount || 0 }
       }))
   });
 });

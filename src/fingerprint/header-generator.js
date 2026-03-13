@@ -1,30 +1,34 @@
 /**
  * Dynamic fingerprint engine - version detection and header randomization
  * Generates realistic request headers that vary per-request to avoid static fingerprinting
+ * Version pools are configurable via config.json (versionPools)
  */
 
 import { config } from '../config.js';
 
-// Antigravity version ranges (for X-Client-Version, NOT User-Agent)
-const ANTIGRAVITY_VERSIONS = [
+// Default version pools (used when config.versionPools is not set)
+const DEFAULT_ANTIGRAVITY_VERSIONS = [
   '1.104.0', '1.104.1', '1.105.0', '1.105.1', '1.105.2',
   '1.106.0', '1.106.1', '1.107.0', '1.107.1', '1.108.0',
   '1.108.1', '1.109.0', '1.109.1', '1.110.0'
 ];
 
-// VS Code versions for User-Agent (Google blocks "antigravity" in UA)
-const VSCODE_VERSIONS = [
+const DEFAULT_VSCODE_VERSIONS = [
   '1.93.0', '1.93.1', '1.94.0', '1.94.1', '1.94.2',
   '1.95.0', '1.95.1', '1.96.0', '1.96.1', '1.96.2',
   '1.97.0', '1.97.1', '1.98.0'
 ];
 
-// Realistic Node.js versions
-const NODE_VERSIONS = [
+const DEFAULT_NODE_VERSIONS = [
   '18.18.2', '18.19.0', '18.19.1', '18.20.0', '18.20.2', '18.20.4',
   '20.11.0', '20.11.1', '20.12.0', '20.12.2', '20.13.1', '20.14.0',
   '22.11.0', '22.12.0'
 ];
+
+// Resolved version pools: config overrides > defaults
+const ANTIGRAVITY_VERSIONS = config.versionPools?.antigravity || DEFAULT_ANTIGRAVITY_VERSIONS;
+const VSCODE_VERSIONS = config.versionPools?.vscode || DEFAULT_VSCODE_VERSIONS;
+const NODE_VERSIONS = config.versionPools?.node || DEFAULT_NODE_VERSIONS;
 
 // Firebase/gRPC version combos seen in the wild
 const GRPC_COMBOS = [
@@ -97,8 +101,31 @@ export function rotateFingerprint(sessionKey) {
 }
 
 /**
+ * Shuffle object key order to prevent header-order fingerprinting
+ * Authorization and Content-Type must still be present but position varies
+ * @param {Object} headers
+ * @returns {Object} headers with randomized key order
+ */
+function shuffleHeaders(headers) {
+  const keys = Object.keys(headers);
+  // Fisher-Yates shuffle
+  for (let i = keys.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = keys[i];
+    keys[i] = keys[j];
+    keys[j] = temp;
+  }
+  const shuffled = {};
+  for (const key of keys) {
+    shuffled[key] = headers[key];
+  }
+  return shuffled;
+}
+
+/**
  * Build request headers for Cloud Code API
  * Headers are consistent within a session but vary between sessions
+ * Header key order is randomized per-request to avoid order-based fingerprinting
  * @param {string} accessToken
  * @param {string} sessionKey
  * @param {string} model
@@ -136,7 +163,8 @@ export function buildHeaders(accessToken, sessionKey, model, accept = 'text/even
     headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14';
   }
 
-  return headers;
+  // Randomize header key order to prevent order-based fingerprinting
+  return shuffleHeaders(headers);
 }
 
 /**

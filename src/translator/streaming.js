@@ -1,8 +1,10 @@
 /**
  * SSE streaming handler
  * Sends requests to Cloud Code API and streams responses back in Anthropic format
+ * Uses undici connection pool for persistent connections (reduces TLS fingerprint exposure)
  */
 
+import { Pool } from 'undici';
 import { config } from '../config.js';
 import { getAccessToken, invalidateToken } from '../auth/token-store.js';
 import { discoverProjectId, getProjectInfo, invalidateProject } from '../auth/project-discovery.js';
@@ -12,7 +14,32 @@ import { buildCloudCodeRequest } from './request.js';
 import { resolveModel, isThinkingModel } from './model-map.js';
 import { convertSSEEvent, buildStreamEnd, createStreamState } from './response.js';
 import { paceRequest } from '../pacer/token-bucket.js';
+import { incrementDailyCount } from '../pacer/daily-limit.js';
 import { markCooldown, notifySuccess, notifyFailure } from '../routing/user-router.js';
+
+// Connection pools per endpoint (persistent TCP connections, reduces TLS handshake frequency)
+const connectionPools = new Map();
+
+/**
+ * Get or create a connection pool for an endpoint
+ * @param {string} endpoint - base URL
+ * @returns {Pool}
+ */
+function getPool(endpoint) {
+  if (!connectionPools.has(endpoint)) {
+    const pool = new Pool(endpoint, {
+      connections: 4,           // max concurrent connections per endpoint
+      pipelining: 1,            // no HTTP pipelining (API doesn't support it)
+      keepAliveTimeout: 60000,  // 60s keep-alive
+      keepAliveMaxTimeout: 300000, // 5min max
+      connect: {
+        rejectUnauthorized: true
+      }
+    });
+    connectionPools.set(endpoint, pool);
+  }
+  return connectionPools.get(endpoint);
+}
 
 /**
  * Stream a message request through Cloud Code API
@@ -20,13 +47,14 @@ import { markCooldown, notifySuccess, notifyFailure } from '../routing/user-rout
  * @param {string} email - Account email to use
  * @param {string} apiKey - User's API key (for routing notifications)
  * @param {import('express').Response} res - Express response to stream to
+ * @param {Object} [pacingContext] - Pacing context for intelligent delay
  */
-export async function streamMessage(anthropicReq, email, apiKey, res) {
+export async function streamMessage(anthropicReq, email, apiKey, res, pacingContext) {
   const sessionKey = `${apiKey}:${email}`;
   const requestedModel = anthropicReq.model || 'claude-sonnet-4-6-thinking';
 
-  // Apply rate limiting + jitter
-  await paceRequest(email);
+  // Apply rate limiting + context-aware jitter
+  await paceRequest(email, pacingContext);
 
   // Discover project ID for this account
   const projectId = await discoverProjectId(email);
@@ -59,33 +87,40 @@ export async function streamMessage(anthropicReq, email, apiKey, res) {
   const payload = buildCloudCodeRequest(resolvedReq, projectId, sessionKey, session.sessionId);
   const headers = buildHeaders(accessToken, sessionKey, resolved.model, 'text/event-stream', session.sessionId);
 
-  // Try endpoints in order
+  // Try endpoints in order (using connection pool for persistent connections)
   let lastError = null;
   for (const endpoint of config.api.endpoints) {
     try {
-      const url = `${endpoint}/v1internal:streamGenerateContent?alt=sse`;
+      const requestPath = '/v1internal:streamGenerateContent?alt=sse';
+      const pool = getPool(endpoint);
 
-      const response = await fetch(url, {
+      const { statusCode, headers: respHeaders, body } = await pool.request({
+        path: requestPath,
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(600000) // 10 min timeout
+        headersTimeout: 30000,
+        bodyTimeout: 600000 // 10 min timeout
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        lastError = { status: response.status, text: errorText, endpoint };
+      if (statusCode < 200 || statusCode >= 300) {
+        const chunks = [];
+        for await (const chunk of body) {
+          chunks.push(chunk);
+        }
+        const errorText = Buffer.concat(chunks).toString();
+        lastError = { status: statusCode, text: errorText, endpoint };
 
         // Handle specific error codes
-        if (response.status === 401) {
+        if (statusCode === 401) {
           invalidateToken(email);
           invalidateProject(email);
           invalidateSession(sessionKey);
           continue; // Try next endpoint
         }
 
-        if (response.status === 429) {
-          const resetMs = parseResetTime(response, errorText);
+        if (statusCode === 429) {
+          const resetMs = parseResetTimeFromUndici(respHeaders, errorText);
           markCooldown(email, resetMs);
           notifyFailure(apiKey);
           throw new ProxyError(429, 'rate_limit_error',
@@ -94,12 +129,12 @@ export async function streamMessage(anthropicReq, email, apiKey, res) {
           );
         }
 
-        if (response.status === 403) {
+        if (statusCode === 403) {
           notifyFailure(apiKey);
-          throw new ProxyError(403, 'authentication_error', `Account forbidden: ${errorText.slice(0, 200)}`);
+          throw new ProxyError(403, 'authentication_error', `Account access denied`);
         }
 
-        if (response.status === 400) {
+        if (statusCode === 400) {
           throw new ProxyError(400, 'invalid_request_error', errorText.slice(0, 500));
         }
 
@@ -107,9 +142,10 @@ export async function streamMessage(anthropicReq, email, apiKey, res) {
         continue;
       }
 
-      // Success - stream the response
+      // Success - stream the response and increment daily counter
       notifySuccess(apiKey);
-      await pipeSSEStream(response, resolved.originalModel, res);
+      incrementDailyCount(email);
+      await pipeUndiciSSEStream(body, resolved.originalModel, res);
       return;
 
     } catch (e) {
@@ -124,14 +160,14 @@ export async function streamMessage(anthropicReq, email, apiKey, res) {
   throw new ProxyError(
     lastError?.status || 502,
     'api_error',
-    `All endpoints failed. Last error: ${lastError?.text?.slice(0, 200) || 'unknown'}`
+    `All endpoints failed. Please try again later.`
   );
 }
 
 /**
- * Pipe Google SSE stream to Express response in Anthropic format
+ * Pipe undici response body (Readable) as SSE stream to Express response in Anthropic format
  */
-async function pipeSSEStream(upstreamResponse, model, res) {
+async function pipeUndiciSSEStream(upstreamBody, model, res) {
   // Set SSE headers
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -141,16 +177,11 @@ async function pipeSSEStream(upstreamResponse, model, res) {
   });
 
   const state = createStreamState(model);
-  const reader = upstreamResponse.body.getReader();
-  const decoder = new TextDecoder();
   let buffer = '';
 
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
+    for await (const chunk of upstreamBody) {
+      buffer += chunk.toString();
 
       // Process complete SSE events
       const lines = buffer.split('\n');
@@ -204,11 +235,11 @@ function writeSSE(res, event) {
 }
 
 /**
- * Parse rate limit reset time from response
+ * Parse rate limit reset time from undici response headers
  */
-function parseResetTime(response, errorText) {
-  // Try Retry-After header
-  const retryAfter = response.headers.get('retry-after');
+function parseResetTimeFromUndici(headers, errorText) {
+  // Try Retry-After header (undici returns headers as flat array or object)
+  const retryAfter = headers['retry-after'];
   if (retryAfter) {
     const seconds = parseInt(retryAfter, 10);
     if (!isNaN(seconds)) return seconds * 1000;

@@ -13,6 +13,7 @@ import { getAccessToken, initTokenStore, setAccount, getAccountEmails, invalidat
 import { refreshAccessToken, startOAuthLogin, getUserInfo } from '../auth/oauth.js';
 import { getSessionStats } from '../fingerprint/session-lifecycle.js';
 import { getPacerStats } from '../pacer/token-bucket.js';
+import { checkDailyLimit, getDailyStats } from '../pacer/daily-limit.js';
 import { getRoutingStats } from '../routing/user-router.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -278,6 +279,7 @@ export function mountWebUI(app) {
       version: '1.0.0',
       fallbackEnabled: false,
       pacer: cfg.pacer || config.pacer,
+      dailyLimitPerAccount: (cfg.pacer || config.pacer).dailyLimitPerAccount || 500,
       session: cfg.session || config.session,
       retry: cfg.retry || config.retry,
       heartbeat: cfg.heartbeat || config.heartbeat,
@@ -438,6 +440,29 @@ export function mountWebUI(app) {
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ============ Daily Usage ============
+
+  // GET /api/daily-usage - Get daily usage stats for all accounts
+  app.get('/api/daily-usage', (req, res) => {
+    const dailyStats = getDailyStats();
+    const cfg = loadConfig();
+    const limit = cfg.pacer?.dailyLimitPerAccount || config.pacer.dailyLimitPerAccount || 0;
+    const accounts = (cfg.accounts || []).filter(a => a.enabled !== false);
+
+    const usage = accounts.map(a => {
+      const stats = dailyStats[a.email] || { used: 0, limit, remaining: limit, percentage: 0 };
+      return {
+        email: a.email,
+        used: stats.used,
+        limit,
+        remaining: limit ? Math.max(0, limit - stats.used) : Infinity,
+        percentage: limit ? Math.round((stats.used / limit) * 100) : 0
+      };
+    });
+
+    res.json({ usage, limit, resetAt: 'UTC 00:00' });
   });
 
   // ============ Logs ============
