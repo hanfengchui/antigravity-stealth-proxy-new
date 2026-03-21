@@ -429,7 +429,7 @@ export function mountWebUI(app) {
         }
       }
 
-      res.json({ quotas, account: email, fetchedAt: new Date().toISOString() });
+      res.json({ quotas, fetchedAt: new Date().toISOString() });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -447,7 +447,7 @@ export function mountWebUI(app) {
     const usage = accounts.map(a => {
       const stats = dailyStats[a.email] || { used: 0, limit, remaining: limit, percentage: 0 };
       return {
-        email: a.email,
+        label: a.label || a.email.replace(/(.{3}).*(@.*)/, '$1***$2'),
         used: stats.used,
         limit,
         remaining: limit ? Math.max(0, limit - stats.used) : Infinity,
