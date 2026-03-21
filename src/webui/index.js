@@ -12,6 +12,8 @@ import { config } from '../config.js';
 import { getAccessToken, initTokenStore, setAccount, getAccountEmails, invalidateToken } from '../auth/token-store.js';
 import { refreshAccessToken, startOAuthLogin, getUserInfo } from '../auth/oauth.js';
 import { proxyFetch } from '../http-client.js';
+import { buildHeaders } from '../fingerprint/header-generator.js';
+import { getProjectInfo } from '../auth/project-discovery.js';
 import { getSessionStats } from '../fingerprint/session-lifecycle.js';
 import { getPacerStats } from '../pacer/token-bucket.js';
 import { checkDailyLimit, getDailyStats } from '../pacer/daily-limit.js';
@@ -200,11 +202,8 @@ export function mountWebUI(app) {
         return res.status(400).json({ error: 'No refresh token received. Make sure to use prompt=consent.' });
       }
 
-      // Get user email
-      const userRes = await proxyFetch('https://www.googleapis.com/oauth2/v1/userinfo', {
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      });
-      const userInfo = await userRes.json();
+      // Get user email (use getUserInfo for correct headers matching real client)
+      const userInfo = await getUserInfo(tokens.access_token);
 
       // Save to config
       const cfg = loadConfig();
@@ -315,9 +314,6 @@ export function mountWebUI(app) {
   app.get('/api/settings', (req, res) => {
     res.json({
       version: '1.0.0',
-      uptime: Math.round(process.uptime()),
-      nodeVersion: process.version,
-      platform: process.platform,
       sessions: getSessionStats(),
       routing: getRoutingStats()
     });
@@ -329,7 +325,7 @@ export function mountWebUI(app) {
     const health = (cfg.accounts || [])
       .filter(a => a.enabled !== false)
       .map(a => ({
-        email: a.email,
+        label: a.label || a.email.replace(/(.{3}).*(@.*)/, '$1***$2'),
         score: 70,
         tokens: getPacerStats(a.email).tokens,
         isRateLimited: false,
@@ -346,7 +342,6 @@ export function mountWebUI(app) {
     const keys = Object.entries(cfg.apiKeys || {}).map(([label, key]) => ({
       label,
       key: key.slice(0, 10) + '...' + key.slice(-4),
-      fullKey: key,
       binding: cfg.userBindings?.[key] || null
     }));
     res.json({ keys });
@@ -406,17 +401,14 @@ export function mountWebUI(app) {
       const email = accounts[0].email;
       const token = await getAccessToken(email);
 
+      const headers = { ...buildHeaders(token), connection: 'close' };
+      const projectInfo = getProjectInfo(email);
+      const projectId = projectInfo?.projectId || '';
+
       const apiRes = await proxyFetch('https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Client-Name': 'antigravity',
-          'X-Client-Version': '1.107.0',
-          'x-goog-api-client': 'gl-go/1.24.2 gccl/0.20.0',
-          'User-Agent': 'antigravity/1.107.0 linux/amd64'
-        },
-        body: JSON.stringify({})
+        headers,
+        body: JSON.stringify({ project: projectId })
       });
 
       if (!apiRes.ok) {

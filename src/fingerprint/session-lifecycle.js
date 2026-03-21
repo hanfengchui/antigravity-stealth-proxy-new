@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-import { rotateFingerprint } from './header-generator.js';
+// No longer need rotateFingerprint — we use fixed real version info, not random pools
 
 // Active sessions: sessionKey -> { sessionId, projectId, createdAt, expiresAt }
 const sessions = new Map();
@@ -71,9 +71,6 @@ function createSession(sessionKey, projectId) {
 function triggerRestart(sessionKey, projectId) {
   restartingKeys.add(sessionKey);
 
-  // Rotate fingerprint on restart (new IDE instance = new version fingerprint)
-  rotateFingerprint(sessionKey);
-
   // Random restart delay (5-15s)
   const delay = randomBetween(5000, 15000);
 
@@ -90,7 +87,6 @@ function triggerRestart(sessionKey, projectId) {
  */
 export function invalidateSession(sessionKey) {
   sessions.delete(sessionKey);
-  rotateFingerprint(sessionKey);
 }
 
 /**

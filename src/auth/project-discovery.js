@@ -1,11 +1,16 @@
 /**
  * Project ID discovery - discovers Cloud Code project IDs per account
  * Uses loadCodeAssist API to find each account's cloudaicompanionProject
+ *
+ * CRITICAL: Must use exact same headers and body format as real Antigravity client.
+ * Real client sends: { metadata: { ide_type: "ANTIGRAVITY", ide_version: "1.20.6", ide_name: "antigravity" } }
+ * NOT numeric enums.
  */
 
 import { config } from '../config.js';
 import { getAccessToken } from './token-store.js';
 import { proxyFetch } from '../http-client.js';
+import { buildHeaders, getClientMetadata } from '../fingerprint/header-generator.js';
 
 // Cache: email -> { projectId, tier, discoveredAt }
 const projectCache = new Map();
@@ -22,8 +27,10 @@ export async function discoverProjectId(email) {
   }
 
   const token = await getAccessToken(email);
+  // Use exact same headers as real client (alphabetical order, no extras)
+  // Add connection: close to match real client behavior
+  const headers = { ...buildHeaders(token), connection: 'close' };
 
-  // Try prod endpoint first, then daily
   const endpoints = [
     'https://cloudcode-pa.googleapis.com',
     'https://daily-cloudcode-pa.googleapis.com'
@@ -33,18 +40,9 @@ export async function discoverProjectId(email) {
     try {
       const res = await proxyFetch(`${endpoint}/v1internal:loadCodeAssist`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Client-Name': 'antigravity',
-          'X-Client-Version': '1.107.0'
-        },
+        headers,
         body: JSON.stringify({
-          metadata: {
-            ideType: 9,
-            platform: 1,
-            pluginType: 2
-          }
+          metadata: getClientMetadata()
         }),
         signal: AbortSignal.timeout(15000)
       });
@@ -76,7 +74,6 @@ export async function discoverProjectId(email) {
     }
   }
 
-  // Fallback to config default
   const fallback = config.api.defaultProjectId;
   console.warn(`[ProjectDiscovery] Using fallback project ID for ${email}: ${fallback}`);
   return fallback;

@@ -3,54 +3,80 @@
  * Sends periodic loadCodeAssist and fetchAvailableModels calls
  * to make accounts look like active IDE sessions
  *
- * IMPORTANT: Uses the same session key as main request path (email)
- * so heartbeat and API requests share one session fingerprint per account.
+ * CRITICAL: Uses exact same headers/body format as real Antigravity client.
+ * Each request uses Connection: close (no persistent pool).
  */
 
 import { config } from '../config.js';
-import { Pool, ProxyAgent } from 'undici';
+import { Client, ProxyAgent } from 'undici';
 import { getAccessToken } from '../auth/token-store.js';
-import { buildHeaders, getSessionFingerprint } from '../fingerprint/header-generator.js';
-import { getSession } from '../fingerprint/session-lifecycle.js';
+import { buildHeaders, getClientMetadata } from '../fingerprint/header-generator.js';
+import { getProjectInfo } from '../auth/project-discovery.js';
 
 let heartbeatTimer = null;
-
-// Track which accounts have completed startup sequence
 const startupCompleted = new Set();
 
-// Heartbeat HTTP dispatcher (proxy or direct)
-let heartbeatDispatcher = null;
+// Shared ProxyAgent for proxy mode
+let heartbeatProxyAgent = null;
 
-function getHeartbeatDispatcher() {
-  if (heartbeatDispatcher) return heartbeatDispatcher;
-
-  if (config.outboundProxy) {
-    heartbeatDispatcher = new ProxyAgent({
+function getProxyAgent() {
+  if (!config.outboundProxy) return null;
+  if (!heartbeatProxyAgent) {
+    heartbeatProxyAgent = new ProxyAgent({
       uri: config.outboundProxy,
-      keepAliveTimeout: 60000,
-      connect: { rejectUnauthorized: true }
-    });
-  } else {
-    heartbeatDispatcher = new Pool(config.api.endpoints[0], {
-      connections: 2,
-      pipelining: 1,
-      keepAliveTimeout: 60000,
       connect: { rejectUnauthorized: true }
     });
   }
-  return heartbeatDispatcher;
+  return heartbeatProxyAgent;
+}
+
+/**
+ * Make a single request with Connection: close (matching real client behavior)
+ */
+async function heartbeatRequest(endpoint, path, headers, body) {
+  const proxy = getProxyAgent();
+
+  if (proxy) {
+    return proxy.request({
+      origin: endpoint,
+      path,
+      method: 'POST',
+      headers: { ...headers, connection: 'close' },
+      body,
+      headersTimeout: 30000,
+      bodyTimeout: 30000,
+    });
+  }
+
+  // Direct mode — fresh client per request
+  const client = new Client(endpoint, {
+    pipelining: 0,
+    keepAliveTimeout: 0,
+    connect: { rejectUnauthorized: true }
+  });
+
+  try {
+    return await client.request({
+      path,
+      method: 'POST',
+      headers: { ...headers, connection: 'close' },
+      body,
+      headersTimeout: 30000,
+      bodyTimeout: 30000,
+    });
+  } catch (e) {
+    client.close();
+    throw e;
+  }
 }
 
 /**
  * Start heartbeat daemon for all active accounts
- * Runs IDE startup sequence first, then periodic heartbeats
  */
 export function startHeartbeat() {
   if (!config.heartbeat.enabled) return;
 
-  // Run startup sequence for all accounts first (staggered)
   runStartupSequence().then(() => {
-    // After startup, begin periodic heartbeats with random initial delay (2-8 min)
     const initialDelay = 120000 + Math.random() * 360000;
     setTimeout(() => {
       runHeartbeat();
@@ -75,19 +101,26 @@ export function stopHeartbeat() {
 
 /**
  * Simulate IDE startup sequence for all accounts
- * Real IDE does: loadCodeAssist → fetchAvailableModels → (ready)
- * This runs once per account on proxy start
+ * Real IDE: cascadeNuxes → loadCodeAssist → fetchUserInfo → fetchAvailableModels
  */
 async function runStartupSequence() {
   for (const account of config.accounts) {
     if (account.enabled === false) continue;
 
     try {
-      // Step 1: loadCodeAssist (IDE checks if code assist is available)
+      // Step 1: cascadeNuxes (GET, real client does this first)
+      await sendCascadeNuxes(account.email);
+      await sleep(500 + Math.random() * 1000);
+
+      // Step 2: loadCodeAssist
       await sendLoadCodeAssist(account.email);
       await sleep(1500 + Math.random() * 3000);
 
-      // Step 2: fetchAvailableModels (IDE loads model list)
+      // Step 3: fetchUserInfo
+      await sendFetchUserInfo(account.email);
+      await sleep(800 + Math.random() * 1500);
+
+      // Step 4: fetchAvailableModels
       await sendFetchModels(account.email);
 
       startupCompleted.add(account.email);
@@ -96,14 +129,13 @@ async function runStartupSequence() {
       console.warn(`[Heartbeat] Startup failed for ${account.email}: ${e.message}`);
     }
 
-    // Stagger between accounts (3-10s)
+    // Stagger between accounts
     await sleep(3000 + Math.random() * 7000);
   }
 }
 
 /**
- * Check if current hour is "quiet time" (midnight-7am in configured timezone)
- * Real developers rarely code at these hours — reduce heartbeat frequency
+ * Check if current hour is "quiet time"
  */
 function isQuietHour() {
   const tz = config.heartbeat.timezone || 'America/Los_Angeles';
@@ -137,39 +169,70 @@ async function runHeartbeat() {
 }
 
 /**
- * Send loadCodeAssist - mimics IDE checking code assist availability
- * Uses email as session key (shared with main request path)
+ * Send cascadeNuxes - GET request, real client does this on startup
  */
-async function sendLoadCodeAssist(email) {
-  const sessionKey = email;
+async function sendCascadeNuxes(email) {
   const token = await getAccessToken(email);
-  const session = getSession(sessionKey);
-  const headers = buildHeaders(token, sessionKey, '', 'application/json', session.sessionId);
+  const headers = buildHeaders(token); // GET request, no content-type
 
   const endpoint = config.api.endpoints[0];
-  const requestPath = '/v1internal:loadCodeAssist';
-  const dispatcher = getHeartbeatDispatcher();
-  const useProxy = !!config.outboundProxy;
+  const proxy = getProxyAgent();
 
-  const body = JSON.stringify({
-    metadata: {
-      ideType: 9,
-      platform: getSessionFingerprint(sessionKey).platformEnum,
-      pluginType: 2
+  if (proxy) {
+    const { statusCode, body } = await proxy.request({
+      origin: endpoint,
+      path: '/v1internal/cascadeNuxes',
+      method: 'GET',
+      headers: { ...headers, connection: 'close' },
+      headersTimeout: 15000,
+      bodyTimeout: 15000,
+    });
+    for await (const _ of body) { /* drain */ }
+    if (statusCode >= 200 && statusCode < 300) {
+      console.log(`[Heartbeat] cascadeNuxes OK for ${email}`);
     }
+    return;
+  }
+
+  const client = new Client(endpoint, {
+    pipelining: 0,
+    keepAliveTimeout: 0,
+    connect: { rejectUnauthorized: true }
   });
 
-  const { statusCode, body: respBody } = await dispatcher.request({
-    origin: useProxy ? endpoint : undefined,
-    path: requestPath,
-    method: 'POST',
-    headers,
-    body,
-    headersTimeout: 30000,
-    bodyTimeout: 30000
+  try {
+    const { statusCode, body } = await client.request({
+      path: '/v1internal/cascadeNuxes',
+      method: 'GET',
+      headers: { ...headers, connection: 'close' },
+      headersTimeout: 15000,
+      bodyTimeout: 15000,
+    });
+    for await (const _ of body) { /* drain */ }
+    if (statusCode >= 200 && statusCode < 300) {
+      console.log(`[Heartbeat] cascadeNuxes OK for ${email}`);
+    }
+  } finally {
+    client.close();
+  }
+}
+
+/**
+ * Send loadCodeAssist - real client body format with string enums
+ */
+async function sendLoadCodeAssist(email) {
+  const token = await getAccessToken(email);
+  const headers = buildHeaders(token);
+
+  const endpoint = config.api.endpoints[0];
+  const body = JSON.stringify({
+    metadata: getClientMetadata()
   });
 
-  // Consume response body
+  const { statusCode, body: respBody } = await heartbeatRequest(
+    endpoint, '/v1internal:loadCodeAssist', headers, body
+  );
+
   const chunks = [];
   for await (const chunk of respBody) chunks.push(chunk);
 
@@ -182,38 +245,44 @@ async function sendLoadCodeAssist(email) {
 }
 
 /**
- * Send fetchAvailableModels - mimics IDE refreshing model list
- * Uses email as session key (shared with main request path)
+ * Send fetchUserInfo - real client sends { project: "<projectId>" }
  */
-async function sendFetchModels(email) {
-  const sessionKey = email;
+async function sendFetchUserInfo(email) {
   const token = await getAccessToken(email);
-  const headers = buildHeaders(token, sessionKey, '', 'application/json');
+  const headers = buildHeaders(token);
+  const projectInfo = getProjectInfo(email);
+  const projectId = projectInfo?.projectId || config.api.defaultProjectId;
 
   const endpoint = config.api.endpoints[0];
-  const requestPath = '/v1internal:fetchAvailableModels';
-  const dispatcher = getHeartbeatDispatcher();
-  const useProxy = !!config.outboundProxy;
+  const body = JSON.stringify({ project: projectId });
 
-  const body = JSON.stringify({
-    metadata: {
-      ideType: 9,
-      platform: getSessionFingerprint(sessionKey).platformEnum,
-      pluginType: 2
-    }
-  });
+  const { statusCode, body: respBody } = await heartbeatRequest(
+    endpoint, '/v1internal:fetchUserInfo', headers, body
+  );
 
-  const { statusCode, body: respBody } = await dispatcher.request({
-    origin: useProxy ? endpoint : undefined,
-    path: requestPath,
-    method: 'POST',
-    headers,
-    body,
-    headersTimeout: 30000,
-    bodyTimeout: 30000
-  });
+  for await (const _ of respBody) { /* drain */ }
 
-  // Consume response body to avoid memory leak
+  if (statusCode >= 200 && statusCode < 300) {
+    console.log(`[Heartbeat] fetchUserInfo OK for ${email}`);
+  }
+}
+
+/**
+ * Send fetchAvailableModels - real client sends { project: "<projectId>" }
+ */
+async function sendFetchModels(email) {
+  const token = await getAccessToken(email);
+  const headers = buildHeaders(token);
+  const projectInfo = getProjectInfo(email);
+  const projectId = projectInfo?.projectId || config.api.defaultProjectId;
+
+  const endpoint = config.api.endpoints[0];
+  const body = JSON.stringify({ project: projectId });
+
+  const { statusCode, body: respBody } = await heartbeatRequest(
+    endpoint, '/v1internal:fetchAvailableModels', headers, body
+  );
+
   for await (const _ of respBody) { /* drain */ }
 
   if (statusCode >= 200 && statusCode < 300) {

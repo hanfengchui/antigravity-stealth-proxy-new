@@ -120,13 +120,13 @@ app.get('/v1/models', authMiddleware, (req, res) => {
  * GET /health - Health check
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
+  res.json({ status: 'ok' });
 });
 
 /**
- * GET /admin/status - Detailed status (no auth for local access)
+ * GET /admin/status - Detailed status (requires valid API key)
  */
-app.get('/admin/status', (req, res) => {
+app.get('/admin/status', authMiddleware, (req, res) => {
   const dailyStats = getDailyStats();
   res.json({
     uptime: Math.round(process.uptime()),
@@ -136,7 +136,7 @@ app.get('/admin/status', (req, res) => {
     accounts: config.accounts
       .filter(a => a.enabled !== false)
       .map(a => ({
-        email: a.email,
+        label: a.label || a.email.replace(/(.{3}).*(@.*)/, '$1***$2'),
         pacer: getPacerStats(a.email),
         daily: dailyStats[a.email] || { used: 0, limit: config.pacer.dailyLimitPerAccount || 0 }
       }))

@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { getClientMetadata } from '../fingerprint/header-generator.js';
+// Header generation is handled by buildHeaders() — request.js only builds the payload body
 
 // No hardcoded system instruction — pass through whatever the client sends.
 // Adding a static prefix is a detection vector (every request from this proxy
@@ -43,8 +43,8 @@ export function buildCloudCodeRequest(anthropicReq, projectId, sessionKey, sessi
     model,
     request: googleRequest,
     userAgent: 'antigravity',
-    requestType: 'REQUEST_TYPE_CASCADE',
-    requestId: randomUUID()
+    requestType: 'agent',
+    requestId: `agent-${randomUUID()}`
   };
 }
 

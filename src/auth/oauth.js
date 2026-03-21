@@ -5,6 +5,7 @@
 
 import { config } from '../config.js';
 import { proxyFetch } from '../http-client.js';
+import { buildHeaders } from '../fingerprint/header-generator.js';
 
 /**
  * Exchange a refresh token for a fresh access token
@@ -101,11 +102,8 @@ export async function startOAuthLogin() {
 
         const tokens = await tokenRes.json();
 
-        // Get user email
-        const userRes = await proxyFetch('https://www.googleapis.com/oauth2/v1/userinfo', {
-          headers: { Authorization: `Bearer ${tokens.access_token}` }
-        });
-        const userInfo = await userRes.json();
+        // Get user email (uses correct headers matching real client)
+        const userInfo = await getUserInfo(tokens.access_token);
 
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end('<h1>Login successful!</h1><p>You can close this window.</p>');
@@ -142,8 +140,14 @@ export async function startOAuthLogin() {
  * @returns {Promise<{email: string, name: string}>}
  */
 export async function getUserInfo(accessToken) {
-  const res = await proxyFetch('https://www.googleapis.com/oauth2/v1/userinfo', {
-    headers: { Authorization: `Bearer ${accessToken}` }
+  // Real client sends full headers (including user-agent + x-goog-api-client) to googleapis.com
+  // But does NOT send content-type for this GET request (confirmed by packet capture)
+  const headers = buildHeaders(accessToken);
+  delete headers['content-type']; // oauth2/userinfo GET has no content-type (capture confirms)
+  headers.connection = 'close';
+
+  const res = await proxyFetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers
   });
   if (!res.ok) throw new Error(`Failed to get user info: ${res.status}`);
   return res.json();

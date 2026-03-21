@@ -1,66 +1,79 @@
 /**
  * SSE streaming handler
  * Sends requests to Cloud Code API and streams responses back in Anthropic format
- * Uses undici connection pool for persistent connections (reduces TLS fingerprint exposure)
+ *
+ * CRITICAL: Real Antigravity client uses Connection: close on every request.
+ * No persistent connection pools. Each request is a fresh TCP connection.
  */
 
-import { Pool, ProxyAgent } from 'undici';
+import { Client, ProxyAgent } from 'undici';
 import { config } from '../config.js';
 import { getAccessToken, invalidateToken } from '../auth/token-store.js';
 import { discoverProjectId, getProjectInfo, invalidateProject } from '../auth/project-discovery.js';
 import { buildHeaders } from '../fingerprint/header-generator.js';
 import { getSession, invalidateSession } from '../fingerprint/session-lifecycle.js';
 import { buildCloudCodeRequest } from './request.js';
-import { resolveModel, isThinkingModel } from './model-map.js';
+import { resolveModel } from './model-map.js';
 import { convertSSEEvent, buildStreamEnd, createStreamState } from './response.js';
 import { paceRequest } from '../pacer/token-bucket.js';
 import { incrementDailyCount } from '../pacer/daily-limit.js';
 import { markCooldown, notifySuccess, notifyFailure } from '../routing/user-router.js';
 
-// Connection pools per endpoint (persistent TCP connections, reduces TLS handshake frequency)
-const connectionPools = new Map();
-
 // Shared ProxyAgent if outbound proxy is configured
 let proxyAgent = null;
 
+function getProxyAgent() {
+  if (!config.outboundProxy) return null;
+  if (!proxyAgent) {
+    proxyAgent = new ProxyAgent({
+      uri: config.outboundProxy,
+      connect: { rejectUnauthorized: true }
+    });
+    console.log(`[Stream] Using outbound proxy: ${config.outboundProxy.replace(/\/\/.*@/, '//***@')}`);
+  }
+  return proxyAgent;
+}
+
 /**
- * Get the dispatcher for making requests.
- * If outbound proxy is configured, uses ProxyAgent (all requests go through proxy).
- * Otherwise, uses per-endpoint Pool for persistent connections.
- * @param {string} endpoint - base URL
- * @returns {{ dispatcher: Pool | ProxyAgent, needsFullUrl: boolean }}
+ * Make a single request with Connection: close behavior.
+ * Real client creates a new TCP connection per request.
  */
-function getDispatcher(endpoint) {
-  // Proxy mode: single ProxyAgent handles all endpoints
-  if (config.outboundProxy) {
-    if (!proxyAgent) {
-      proxyAgent = new ProxyAgent({
-        uri: config.outboundProxy,
-        keepAliveTimeout: 60000,
-        keepAliveMaxTimeout: 300000,
-        connect: {
-          rejectUnauthorized: true
-        }
-      });
-      console.log(`[Stream] Using outbound proxy: ${config.outboundProxy.replace(/\/\/.*@/, '//***@')}`);
-    }
-    return { dispatcher: proxyAgent, needsFullUrl: true };
+async function singleRequest(endpoint, path, method, headers, body, timeouts) {
+  const proxy = getProxyAgent();
+
+  if (proxy) {
+    // ProxyAgent mode — use undici fetch-like request
+    return proxy.request({
+      origin: endpoint,
+      path,
+      method,
+      headers: { ...headers, connection: 'close' },
+      body,
+      headersTimeout: timeouts.headers || 30000,
+      bodyTimeout: timeouts.body || 600000,
+    });
   }
 
-  // Direct mode: per-endpoint connection pool
-  if (!connectionPools.has(endpoint)) {
-    const pool = new Pool(endpoint, {
-      connections: 4,
-      pipelining: 1,
-      keepAliveTimeout: 60000,
-      keepAliveMaxTimeout: 300000,
-      connect: {
-        rejectUnauthorized: true
-      }
+  // Direct mode — create a fresh Client per request (Connection: close)
+  const client = new Client(endpoint, {
+    pipelining: 0,
+    keepAliveTimeout: 0,
+    connect: { rejectUnauthorized: true }
+  });
+
+  try {
+    return await client.request({
+      path,
+      method,
+      headers: { ...headers, connection: 'close' },
+      body,
+      headersTimeout: timeouts.headers || 30000,
+      bodyTimeout: timeouts.body || 600000,
     });
-    connectionPools.set(endpoint, pool);
+  } catch (e) {
+    client.close();
+    throw e;
   }
-  return { dispatcher: connectionPools.get(endpoint), needsFullUrl: false };
 }
 
 /**
@@ -72,7 +85,6 @@ function getDispatcher(endpoint) {
  * @param {Object} [pacingContext] - Pacing context for intelligent delay
  */
 export async function streamMessage(anthropicReq, email, apiKey, res, pacingContext) {
-  // Use email as session key (shared with heartbeat daemon for unified fingerprint)
   const sessionKey = email;
   const requestedModel = anthropicReq.model || 'claude-sonnet-4-6-thinking';
 
@@ -84,7 +96,7 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
   const projectInfo = getProjectInfo(email);
   const tier = projectInfo?.tier || 'standard-tier';
 
-  // Resolve model name (maps Claude CLI names to available models)
+  // Resolve model name
   const resolved = resolveModel(requestedModel, tier);
   if (resolved.isFallback) {
     console.log(`[Stream] Model fallback: ${requestedModel} -> ${resolved.model} (tier: ${tier})`);
@@ -93,7 +105,6 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
   // Get or create session
   const session = getSession(sessionKey, projectId);
   if (session.isRestarting) {
-    // Session is restarting (simulating IDE restart) - brief wait
     await sleep(config.session.restartDelayMs);
     const retrySession = getSession(sessionKey, projectId);
     if (retrySession.isRestarting) {
@@ -105,27 +116,21 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
   // Get access token
   const accessToken = await getAccessToken(email);
 
-  // Build request with resolved model
+  // Build request
   const resolvedReq = { ...anthropicReq, model: resolved.model };
   const payload = buildCloudCodeRequest(resolvedReq, projectId, sessionKey, session.sessionId);
-  const headers = buildHeaders(accessToken, sessionKey, resolved.model, 'text/event-stream', session.sessionId);
+  const headers = buildHeaders(accessToken);
 
-  // Try endpoints in order (using connection pool for persistent connections)
+  // Try endpoints in order
   let lastError = null;
   for (const endpoint of config.api.endpoints) {
     try {
       const requestPath = '/v1internal:streamGenerateContent?alt=sse';
-      const { dispatcher, needsFullUrl } = getDispatcher(endpoint);
 
-      const { statusCode, headers: respHeaders, body } = await dispatcher.request({
-        origin: needsFullUrl ? endpoint : undefined,
-        path: requestPath,
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        headersTimeout: 30000,
-        bodyTimeout: 600000 // 10 min timeout
-      });
+      const { statusCode, headers: respHeaders, body } = await singleRequest(
+        endpoint, requestPath, 'POST', headers, JSON.stringify(payload),
+        { headers: 30000, body: 600000 }
+      );
 
       if (statusCode < 200 || statusCode >= 300) {
         const chunks = [];
@@ -135,16 +140,15 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
         const errorText = Buffer.concat(chunks).toString();
         lastError = { status: statusCode, text: errorText, endpoint };
 
-        // Handle specific error codes
         if (statusCode === 401) {
           invalidateToken(email);
           invalidateProject(email);
           invalidateSession(sessionKey);
-          continue; // Try next endpoint
+          continue;
         }
 
         if (statusCode === 429) {
-          const resetMs = parseResetTimeFromUndici(respHeaders, errorText);
+          const resetMs = parseResetTime(respHeaders, errorText);
           markCooldown(email, resetMs);
           notifyFailure(apiKey);
           throw new ProxyError(429, 'rate_limit_error',
@@ -162,14 +166,13 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
           throw new ProxyError(400, 'invalid_request_error', 'There was an issue with the format or content of your request.');
         }
 
-        // Server error - try next endpoint
         continue;
       }
 
-      // Success - stream the response and increment daily counter
+      // Success
       notifySuccess(apiKey);
       incrementDailyCount(email);
-      await pipeUndiciSSEStream(body, resolved.originalModel, res);
+      await pipeSSEStream(body, resolved.originalModel, res);
       return;
 
     } catch (e) {
@@ -179,7 +182,6 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
     }
   }
 
-  // All endpoints failed
   notifyFailure(apiKey);
   throw new ProxyError(
     lastError?.status || 502,
@@ -189,15 +191,13 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
 }
 
 /**
- * Pipe undici response body (Readable) as SSE stream to Express response in Anthropic format
+ * Pipe upstream SSE stream to Express response in Anthropic format
  */
-async function pipeUndiciSSEStream(upstreamBody, model, res) {
-  // Set SSE headers
+async function pipeSSEStream(upstreamBody, model, res) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
+    'Connection': 'keep-alive'
   });
 
   const state = createStreamState(model);
@@ -207,9 +207,8 @@ async function pipeUndiciSSEStream(upstreamBody, model, res) {
     for await (const chunk of upstreamBody) {
       buffer += chunk.toString();
 
-      // Process complete SSE events
       const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+      buffer = lines.pop() || '';
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -224,7 +223,6 @@ async function pipeUndiciSSEStream(upstreamBody, model, res) {
       }
     }
 
-    // Process any remaining buffer
     if (buffer.startsWith('data: ')) {
       const data = buffer.slice(6).trim();
       if (data && data !== '[DONE]') {
@@ -235,18 +233,18 @@ async function pipeUndiciSSEStream(upstreamBody, model, res) {
       }
     }
 
-    // Send stream end events
     const endEvents = buildStreamEnd(state);
     for (const event of endEvents) {
       writeSSE(res, event);
     }
 
   } catch (e) {
-    // Stream error - try to send error event
+    // Do NOT leak Node.js/undici internal error messages to the client
+    console.error('[Stream] SSE pipe error:', e.message);
     try {
       writeSSE(res, {
         type: 'error',
-        error: { type: 'api_error', message: e.message }
+        error: { type: 'api_error', message: 'An unexpected error occurred.' }
       });
     } catch { /* response already closed */ }
   } finally {
@@ -258,18 +256,13 @@ function writeSSE(res, event) {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
-/**
- * Parse rate limit reset time from undici response headers
- */
-function parseResetTimeFromUndici(headers, errorText) {
-  // Try Retry-After header (undici returns headers as flat array or object)
+function parseResetTime(headers, errorText) {
   const retryAfter = headers['retry-after'];
   if (retryAfter) {
     const seconds = parseInt(retryAfter, 10);
     if (!isNaN(seconds)) return seconds * 1000;
   }
 
-  // Try to parse from error body
   try {
     const err = JSON.parse(errorText);
     const details = err.error?.details || [];
@@ -281,7 +274,6 @@ function parseResetTimeFromUndici(headers, errorText) {
     }
   } catch { /* ignore */ }
 
-  // Default: 30 seconds
   return 30000;
 }
 

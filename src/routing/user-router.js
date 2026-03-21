@@ -137,9 +137,12 @@ export function getRoutingStats() {
   const stats = [];
   for (const [key, state] of routeState) {
     const cd = cooldowns.get(state.current);
+    const maskedEmail = state.current
+      ? state.current.replace(/(.{3}).*(@.*)/, '$1***$2')
+      : null;
     stats.push({
       apiKey: key.slice(0, 10) + '...',
-      currentAccount: state.current,
+      currentAccount: maskedEmail,
       failCount: state.failCount,
       cooldownRemaining: cd ? Math.max(0, cd.until - Date.now()) : 0
     });

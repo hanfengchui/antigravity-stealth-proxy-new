@@ -1,177 +1,82 @@
 /**
- * Dynamic fingerprint engine - version detection and header randomization
- * Generates realistic request headers that vary per-request to avoid static fingerprinting
- * Version pools are configurable via config.json (versionPools)
+ * Header generator - exact replication of real Antigravity client headers
+ * Based on mitmproxy packet capture analysis of real Antigravity 1.20.6
+ *
+ * CRITICAL: Real client is a Node.js (google-api-nodejs-client) application.
+ * Headers must be in fixed alphabetical order with NO extra headers.
  */
 
-import { randomUUID } from 'crypto';
-import { config } from '../config.js';
+import { platform, arch } from 'os';
 
-// Default version pools (used when config.versionPools is not set)
-const DEFAULT_ANTIGRAVITY_VERSIONS = [
-  '1.104.0', '1.104.1', '1.105.0', '1.105.1', '1.105.2',
-  '1.106.0', '1.106.1', '1.107.0', '1.107.1', '1.108.0',
-  '1.108.1', '1.109.0', '1.109.1', '1.110.0'
-];
+// Real Antigravity version (from packet capture)
+const ANTIGRAVITY_VERSION = '1.20.6';
 
-const DEFAULT_VSCODE_VERSIONS = [
-  '1.93.0', '1.93.1', '1.94.0', '1.94.1', '1.94.2',
-  '1.95.0', '1.95.1', '1.96.0', '1.96.1', '1.96.2',
-  '1.97.0', '1.97.1', '1.98.0'
-];
+// google-api-nodejs-client version (from real UA in packet capture)
+const NODEJS_CLIENT_VERSION = '10.3.0';
 
-// Go runtime versions (real Antigravity binary is written in Go)
-const DEFAULT_GO_VERSIONS = [
-  '1.23.0', '1.23.1', '1.23.2', '1.23.3', '1.23.4',
-  '1.24.0', '1.24.1', '1.24.2'
-];
+// Node.js version reported in x-goog-api-client (from packet capture: gl-node/22.21.1)
+const NODE_VERSION = '22.21.1';
 
-// Google Cloud Client Library (gccl) versions
-const DEFAULT_GCCL_VERSIONS = [
-  '0.18.0', '0.19.0', '0.19.1', '0.20.0', '0.20.1', '0.21.0'
-];
-
-// Resolved version pools: config overrides > defaults
-const ANTIGRAVITY_VERSIONS = config.versionPools?.antigravity || DEFAULT_ANTIGRAVITY_VERSIONS;
-const VSCODE_VERSIONS = config.versionPools?.vscode || DEFAULT_VSCODE_VERSIONS;
-const GO_VERSIONS = config.versionPools?.go || DEFAULT_GO_VERSIONS;
-const GCCL_VERSIONS = config.versionPools?.gccl || DEFAULT_GCCL_VERSIONS;
-
-// Platform pool using Go's runtime.GOOS/runtime.GOARCH format (NOT Node.js format)
-// Real binary: darwin/arm64, darwin/amd64, linux/amd64, windows/amd64
-const PLATFORM_POOL = [
-  { str: 'darwin/arm64', enum: 2 },
-  { str: 'darwin/amd64', enum: 1 },
-  { str: 'linux/amd64', enum: 3 },
-  { str: 'windows/amd64', enum: 5 },
-];
-
-// Pick a random simulated platform (not tied to actual server OS)
-function getRandomPlatform() {
-  return randomPick(PLATFORM_POOL);
+// Platform string in Node.js format (darwin/arm64, linux/x64, etc.)
+// Real client is Node.js (google-api-nodejs-client), NOT Go — uses Node.js arch names
+function getPlatformString() {
+  const os = platform();
+  const cpu = arch();
+  const osMap = { darwin: 'darwin', linux: 'linux', win32: 'windows' };
+  // Node.js uses 'arm64' and 'x64' natively — do NOT convert to Go's 'amd64'
+  return `${osMap[os] || os}/${cpu}`;
 }
 
-function randomPick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+const PLATFORM_STRING = getPlatformString();
 
 /**
- * Per-session fingerprint state - stays consistent within a session,
- * changes when session rotates (mimics IDE restart)
+ * Build request headers that exactly match the real Antigravity client.
+ *
+ * Real client sends headers in fixed alphabetical order:
+ *   accept, accept-encoding, authorization, content-length (POST), content-type, user-agent, x-goog-api-client
+ *   (Host and Connection are added by HTTP library)
+ *
+ * NO other headers. No X-Client-Name, no X-Client-Version, no x-server-timeout,
+ * no X-Machine-Session-Id, no x-cloudaicompanion-trace-id, no anthropic-beta.
+ *
+ * @param {string} accessToken - OAuth2 Bearer token
+ * @returns {Object} headers in correct alphabetical order
  */
-const sessionFingerprints = new Map();
-
-/**
- * Generate or retrieve a consistent fingerprint for a session
- * @param {string} sessionKey - unique key (e.g., "user:account")
- * @returns {Object} fingerprint with version info
- */
-export function getSessionFingerprint(sessionKey) {
-  if (sessionFingerprints.has(sessionKey)) {
-    return sessionFingerprints.get(sessionKey);
-  }
-
-  const plat = getRandomPlatform();
-  const fp = {
-    antigravityVersion: randomPick(ANTIGRAVITY_VERSIONS),
-    vscodeVersion: randomPick(VSCODE_VERSIONS),
-    goVersion: randomPick(GO_VERSIONS),
-    gcclVersion: randomPick(GCCL_VERSIONS),
-    platformString: plat.str,
-    platformEnum: plat.enum,
-    createdAt: Date.now()
-  };
-
-  sessionFingerprints.set(sessionKey, fp);
-  return fp;
-}
-
-/**
- * Rotate fingerprint for a session (called on session lifecycle restart)
- * @param {string} sessionKey
- */
-export function rotateFingerprint(sessionKey) {
-  sessionFingerprints.delete(sessionKey);
-}
-
-/**
- * Shuffle object key order to prevent header-order fingerprinting
- * Authorization and Content-Type must still be present but position varies
- * @param {Object} headers
- * @returns {Object} headers with randomized key order
- */
-function shuffleHeaders(headers) {
-  const keys = Object.keys(headers);
-  // Fisher-Yates shuffle
-  for (let i = keys.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const temp = keys[i];
-    keys[i] = keys[j];
-    keys[j] = temp;
-  }
-  const shuffled = {};
-  for (const key of keys) {
-    shuffled[key] = headers[key];
-  }
-  return shuffled;
-}
-
-/**
- * Build request headers for Cloud Code API
- * Headers are consistent within a session but vary between sessions
- * Header key order is randomized per-request to avoid order-based fingerprinting
- * @param {string} accessToken
- * @param {string} sessionKey
- * @param {string} model
- * @param {string} [accept] - Accept header value
- * @param {string} [sessionId] - Cloud Code session ID
- * @returns {Object} headers
- */
-export function buildHeaders(accessToken, sessionKey, model, accept = 'text/event-stream', sessionId = null) {
-  const fp = getSessionFingerprint(sessionKey);
-  const isClaudeModel = (model || '').toLowerCase().includes('claude');
-
-  // Claude models REQUIRE antigravity UA; Gemini models REQUIRE vscode UA
-  const userAgent = isClaudeModel
-    ? `antigravity/${fp.antigravityVersion} ${fp.platformString}`
-    : `vscode/${fp.vscodeVersion}`;
-
+export function buildHeaders(accessToken) {
+  // Headers MUST be in this exact alphabetical order
+  // Real client sends content-type: application/json for BOTH GET and POST
+  // (confirmed by packet capture: cascadeNuxes GET also has content-type)
+  // content-length is added automatically by the HTTP library for POST
   const headers = {
-    'Authorization': `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-    'Accept': accept,
-    'User-Agent': userAgent,
-    'X-Client-Name': 'antigravity',
-    'X-Client-Version': fp.antigravityVersion,
-    'x-goog-api-client': `gl-go/${fp.goVersion} gccl/${fp.gcclVersion}`,
-    'x-server-timeout': '600',
-    'x-cloudaicompanion-trace-id': randomUUID()
+    'accept': '*/*',
+    'accept-encoding': 'gzip, deflate, br',
+    'authorization': `Bearer ${accessToken}`,
+    'content-type': 'application/json',
   };
 
-  if (sessionId) {
-    headers['X-Machine-Session-Id'] = sessionId;
-  }
+  headers['user-agent'] = `antigravity/${ANTIGRAVITY_VERSION} ${PLATFORM_STRING} google-api-nodejs-client/${NODEJS_CLIENT_VERSION}`;
+  headers['x-goog-api-client'] = `gl-node/${NODE_VERSION}`;
 
-  // Add interleaved thinking header for Claude thinking models
-  const modelLower = (model || '').toLowerCase();
-  if (modelLower.includes('claude') && modelLower.includes('thinking')) {
-    headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14';
-  }
-
-  // Randomize header key order to prevent order-based fingerprinting
-  return shuffleHeaders(headers);
+  return headers;
 }
 
 /**
- * Get client metadata for request body
- * @param {string} sessionKey
+ * Get client metadata for loadCodeAssist request body.
+ * Real client sends string enum values, not numeric.
  * @returns {Object}
  */
-export function getClientMetadata(sessionKey) {
-  const fp = getSessionFingerprint(sessionKey);
+export function getClientMetadata() {
   return {
-    ideType: 9,           // ANTIGRAVITY
-    platform: fp.platformEnum,
-    pluginType: 2          // GEMINI
+    ide_type: 'ANTIGRAVITY',
+    ide_version: ANTIGRAVITY_VERSION,
+    ide_name: 'antigravity'
   };
+}
+
+/**
+ * Get the Antigravity version string
+ * @returns {string}
+ */
+export function getAntigravityVersion() {
+  return ANTIGRAVITY_VERSION;
 }

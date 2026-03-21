@@ -102,14 +102,15 @@ export function isThinkingModel(model) {
  * @returns {Array}
  */
 export function getAdvertisedModels() {
+  // Use fixed timestamps (matching real Anthropic API behavior — model creation dates don't change)
   return [
-    { id: 'claude-sonnet-4-6-thinking', object: 'model', created: Date.now() },
-    { id: 'claude-opus-4-6-thinking', object: 'model', created: Date.now() },
-    { id: 'claude-sonnet-4-6', object: 'model', created: Date.now() },
-    { id: 'claude-opus-4-6', object: 'model', created: Date.now() },
-    { id: 'claude-haiku-4-5', object: 'model', created: Date.now() },
-    { id: 'gemini-2.5-pro', object: 'model', created: Date.now() },
-    { id: 'gemini-2.5-flash', object: 'model', created: Date.now() },
-    { id: 'gemini-2.0-flash', object: 'model', created: Date.now() },
+    { id: 'claude-sonnet-4-6-thinking', object: 'model', created: 1748476800 },
+    { id: 'claude-opus-4-6-thinking', object: 'model', created: 1748476800 },
+    { id: 'claude-sonnet-4-6', object: 'model', created: 1748476800 },
+    { id: 'claude-opus-4-6', object: 'model', created: 1748476800 },
+    { id: 'claude-haiku-4-5', object: 'model', created: 1746057600 },
+    { id: 'gemini-2.5-pro', object: 'model', created: 1743638400 },
+    { id: 'gemini-2.5-flash', object: 'model', created: 1743638400 },
+    { id: 'gemini-2.0-flash', object: 'model', created: 1739404800 },
   ];
 }
