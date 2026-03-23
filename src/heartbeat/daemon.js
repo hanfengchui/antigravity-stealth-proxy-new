@@ -24,6 +24,7 @@ function getProxyAgent() {
   if (!heartbeatProxyAgent) {
     heartbeatProxyAgent = new ProxyAgent({
       uri: config.outboundProxy,
+      keepAliveTimeout: 0,  // No persistent connections — match real client behavior
       connect: { rejectUnauthorized: true }
     });
   }

@@ -30,6 +30,34 @@ const IDE_EVENTS = [
   'codeAssist.chat.send',
 ];
 
+// Per-event-type realistic properties (real IDE sends different fields per event)
+const EVENT_PROPERTIES = {
+  'editor.file.open': () => ({
+    fileExtension: randomPick(['.ts', '.js', '.py', '.go', '.rs', '.java', '.tsx', '.jsx', '.json', '.md']),
+    languageId: randomPick(['typescript', 'javascript', 'python', 'go', 'rust', 'java', 'typescriptreact', 'json', 'markdown']),
+  }),
+  'editor.file.save': () => ({
+    fileExtension: randomPick(['.ts', '.js', '.py', '.go', '.tsx', '.json']),
+    languageId: randomPick(['typescript', 'javascript', 'python', 'go', 'typescriptreact', 'json']),
+  }),
+  'codeAssist.completion.shown': () => ({
+    languageId: randomPick(['typescript', 'javascript', 'python', 'go']),
+    completionLength: Math.floor(randomBetween(10, 200)),
+  }),
+  'codeAssist.completion.accepted': () => ({
+    languageId: randomPick(['typescript', 'javascript', 'python', 'go']),
+    completionLength: Math.floor(randomBetween(10, 150)),
+    acceptLatencyMs: Math.floor(randomBetween(500, 5000)),
+  }),
+  'codeAssist.chat.send': () => ({
+    messageLength: Math.floor(randomBetween(20, 500)),
+    modelId: randomPick(['claude-sonnet-4-6', 'claude-sonnet-4-6-thinking', 'claude-opus-4-6-thinking']),
+  }),
+  'selected_model_changed': () => ({
+    modelId: randomPick(['claude-sonnet-4-6', 'claude-sonnet-4-6-thinking', 'claude-opus-4-6-thinking']),
+  }),
+};
+
 function randomPick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -92,6 +120,8 @@ async function sendEventBatch(email) {
 
   for (let i = 0; i < eventCount; i++) {
     const eventType = randomPick(IDE_EVENTS);
+    // Build realistic properties per event type
+    const extraProps = EVENT_PROPERTIES[eventType] ? EVENT_PROPERTIES[eventType]() : {};
     events.push({
       eventType,
       timestamp: new Date(now - Math.floor(randomBetween(0, 300000))).toISOString(),
@@ -99,6 +129,7 @@ async function sendEventBatch(email) {
       properties: {
         ideName: 'antigravity',
         ideVersion: getAntigravityVersion(),
+        ...extraProps
       }
     });
   }

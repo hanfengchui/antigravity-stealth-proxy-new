@@ -27,6 +27,7 @@ function getProxyAgent() {
   if (!proxyAgent) {
     proxyAgent = new ProxyAgent({
       uri: config.outboundProxy,
+      keepAliveTimeout: 0,  // No persistent connections — match real client behavior
       connect: { rejectUnauthorized: true }
     });
     console.log(`[Stream] Using outbound proxy: ${config.outboundProxy.replace(/\/\/.*@/, '//***@')}`);
@@ -164,6 +165,7 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
         }
 
         if (statusCode === 400) {
+          console.error(`[Stream] 400 Bad Request from ${endpoint}: ${errorText.slice(0, 500)}`);
           throw new ProxyError(400, 'invalid_request_error', 'There was an issue with the format or content of your request.');
         }
 
