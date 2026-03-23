@@ -10,6 +10,7 @@
  */
 
 import { platform, arch } from 'os';
+import * as grpc from '@grpc/grpc-js';
 import { config } from '../config.js';
 
 // Read versions from config (allows overriding when Antigravity updates)
@@ -83,4 +84,30 @@ export function getClientMetadata() {
  */
 export function getAntigravityVersion() {
   return ANTIGRAVITY_VERSION;
+}
+
+/**
+ * Build gRPC metadata headers that match the real Antigravity Go binary.
+ *
+ * The Go binary uses grpc-go and sends:
+ *   - user-agent: grpc-go/1.80.0-dev
+ *   - x-goog-api-client: gl-go/1.27 gccl/0.1.0
+ *   - authorization: Bearer {token}
+ *
+ * content-type is NOT set here — @grpc/grpc-js automatically adds
+ * content-type: application/grpc.
+ *
+ * @param {string} accessToken - OAuth2 Bearer token
+ * @param {Object} [options]
+ * @param {boolean} [options.isGeminiModel=false] - Model type
+ * @returns {grpc.Metadata} gRPC metadata
+ */
+export function buildGrpcMetadata(accessToken, { isGeminiModel = false } = {}) {
+  const metadata = new grpc.Metadata();
+
+  metadata.set('authorization', `Bearer ${accessToken}`);
+  metadata.set('user-agent', `grpc-go/${config.grpc.grpcGoVersion}`);
+  metadata.set('x-goog-api-client', `gl-go/${config.grpc.goVersion} gccl/${config.grpc.gcclVersion}`);
+
+  return metadata;
 }

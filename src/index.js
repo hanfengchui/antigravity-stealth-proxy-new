@@ -40,6 +40,7 @@ app.listen(config.port, config.host, () => {
   console.log(`[Init] Heartbeat: ${config.heartbeat.enabled ? `every ${config.heartbeat.intervalMs / 60000}min` : 'disabled'}`);
   console.log(`[Init] Outbound proxy: ${config.outboundProxy ? config.outboundProxy.replace(/\/\/.*@/, '//***@') : 'direct (no proxy)'}`);
   console.log(`[Init] Platform spoof: ${config.fingerprint.platform}`);
+  console.log(`[Init] gRPC mode: ${config.grpc.enabled ? `enabled (grpc-go/${config.grpc.grpcGoVersion})` : 'disabled (REST fallback)'}`);
   console.log(`[Init] Telemetry simulator: enabled (zero telemetry is a detection vector)`);
   console.log('\n[Init] Ready. Configure Claude Code CLI:');
   console.log(`  export ANTHROPIC_BASE_URL=http://YOUR_SERVER_IP:${config.port}`);

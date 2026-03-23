@@ -126,6 +126,15 @@ export const config = {
     ...merged.fingerprint
   },
 
+  // gRPC mode — use HTTP/2 + protobuf to match real Go binary behavior
+  grpc: {
+    enabled: merged.grpc?.enabled !== false,  // Default: enabled
+    grpcGoVersion: merged.grpc?.grpcGoVersion || '1.80.0-dev',
+    goVersion: merged.grpc?.goVersion || '1.27',
+    gcclVersion: merged.grpc?.gcclVersion || '0.1.0',
+    ...merged.grpc
+  },
+
   // Outbound proxy for API requests (residential IP / Cloudflare WARP)
   // Supports HTTP/HTTPS/SOCKS5 proxies
   // Example: "socks5://127.0.0.1:40000" or "http://user:pass@proxy.example.com:8080"
