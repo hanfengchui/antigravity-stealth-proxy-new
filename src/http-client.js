@@ -19,7 +19,7 @@ function getProxyDispatcher() {
   if (!sharedProxyAgent) {
     sharedProxyAgent = new ProxyAgent({
       uri: config.outboundProxy,
-      keepAliveTimeout: 60000,
+      keepAliveTimeout: 0,  // No persistent connections — match real client behavior
       connect: { rejectUnauthorized: true }
     });
   }
@@ -29,14 +29,20 @@ function getProxyDispatcher() {
 /**
  * Fetch with outbound proxy support
  * Drop-in replacement for global fetch() — routes through proxy if configured
+ * CRITICAL: Always adds Connection: close to match real client behavior
+ * (real Antigravity client creates a fresh TCP connection per request)
  * @param {string | URL} url
  * @param {RequestInit & { signal?: AbortSignal }} init
  * @returns {Promise<Response>}
  */
 export async function proxyFetch(url, init = {}) {
+  // Ensure Connection: close to match real client behavior
+  const headers = { ...init.headers, connection: 'close' };
+  const opts = { ...init, headers };
+
   const dispatcher = getProxyDispatcher();
   if (dispatcher) {
-    return undiciFetch(url, { ...init, dispatcher });
+    return undiciFetch(url, { ...opts, dispatcher });
   }
-  return fetch(url, init);
+  return fetch(url, opts);
 }

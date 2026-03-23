@@ -38,11 +38,12 @@ export function buildCloudCodeRequest(anthropicReq, projectId, sessionKey, sessi
   }
 
   // Wrap in Cloud Code envelope
+  // userAgent in envelope must match the HTTP User-Agent header model family
   return {
     project: projectId,
     model,
     request: googleRequest,
-    userAgent: 'antigravity',
+    userAgent: isClaudeModel ? 'antigravity' : 'vscode',
     requestType: 'agent',
     requestId: `agent-${randomUUID()}`
   };
@@ -80,6 +81,9 @@ function convertMessages(messages, isClaudeModel) {
             });
           }
           // Drop unsigned thinking blocks
+        } else if (cleanBlock.type === 'redacted_thinking') {
+          // Explicitly skip - Google API doesn't support redacted thinking
+          continue;
         } else if (cleanBlock.type === 'tool_use') {
           const fc = {
             name: cleanBlock.name,
@@ -228,18 +232,28 @@ function convertTools(tools) {
 }
 
 /**
+ * Whitelist of JSON Schema fields supported by Google's protobuf Schema.
+ * Source: google/ai/generativelanguage/v1beta/content.proto (22 fields)
+ */
+const SUPPORTED_SCHEMA_KEYS = new Set([
+  'type', 'format', 'title', 'description', 'nullable', 'enum',
+  'items', 'maxItems', 'minItems', 'properties', 'required',
+  'minProperties', 'maxProperties', 'minimum', 'maximum',
+  'minLength', 'maxLength', 'pattern', 'example', 'anyOf',
+  'propertyOrdering', 'default'
+]);
+
+/**
  * Clean JSON schema for Cloud Code compatibility
- * Removes fields that cause protobuf parsing errors
+ * Only keeps fields in the protobuf-supported whitelist
  */
 function cleanSchema(schema) {
   if (!schema || typeof schema !== 'object') return schema;
 
   const cleaned = {};
   for (const [key, value] of Object.entries(schema)) {
-    // Skip unsupported schema fields
-    if (['$schema', 'additionalProperties', 'default', 'examples', '$ref', '$defs'].includes(key)) {
-      continue;
-    }
+    if (!SUPPORTED_SCHEMA_KEYS.has(key)) continue;
+
     if (typeof value === 'object' && value !== null) {
       if (Array.isArray(value)) {
         cleaned[key] = value.map(v => typeof v === 'object' ? cleanSchema(v) : v);

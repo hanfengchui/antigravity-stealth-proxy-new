@@ -8,6 +8,7 @@ import { initTokenStore } from './auth/token-store.js';
 import { initApiKeys } from './auth/api-keys.js';
 import { discoverAllProjects } from './auth/project-discovery.js';
 import { startHeartbeat } from './heartbeat/daemon.js';
+import { startTelemetry } from './telemetry/simulator.js';
 import app from './server.js';
 
 // Ensure config directory exists
@@ -28,6 +29,9 @@ await discoverAllProjects();
 // Start heartbeat daemon (background IDE activity simulation)
 startHeartbeat();
 
+// Start telemetry simulator (zero telemetry is an obvious automation fingerprint)
+startTelemetry();
+
 // Start server
 app.listen(config.port, config.host, () => {
   console.log(`[Init] Listening on ${config.host}:${config.port}`);
@@ -35,7 +39,8 @@ app.listen(config.port, config.host, () => {
   console.log(`[Init] Session lifecycle: ${config.session.minLifetimeMs / 3600000}-${config.session.maxLifetimeMs / 3600000}h`);
   console.log(`[Init] Heartbeat: ${config.heartbeat.enabled ? `every ${config.heartbeat.intervalMs / 60000}min` : 'disabled'}`);
   console.log(`[Init] Outbound proxy: ${config.outboundProxy ? config.outboundProxy.replace(/\/\/.*@/, '//***@') : 'direct (no proxy)'}`);
-  console.log(`[Init] Telemetry simulator: disabled (fake events are a detection vector)`);
+  console.log(`[Init] Platform spoof: ${config.fingerprint.platform}`);
+  console.log(`[Init] Telemetry simulator: enabled (zero telemetry is a detection vector)`);
   console.log('\n[Init] Ready. Configure Claude Code CLI:');
   console.log(`  export ANTHROPIC_BASE_URL=http://YOUR_SERVER_IP:${config.port}`);
   console.log('  export ANTHROPIC_AUTH_TOKEN=sk-your-api-key');

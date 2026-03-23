@@ -112,6 +112,20 @@ export const config = {
     ...merged.api
   },
 
+  // Fingerprint spoofing — critical for anti-detection
+  // Real Antigravity users are on macOS/Windows, never Linux servers
+  fingerprint: {
+    // Platform string override (default: darwin/arm64 to look like a real macOS user)
+    // Options: "darwin/arm64", "darwin/x64", "win32/x64", "auto" (use real OS)
+    platform: merged.fingerprint?.platform || 'darwin/arm64',
+    // Version overrides (update these when Antigravity releases new versions)
+    antigravityVersion: merged.fingerprint?.antigravityVersion || '1.20.6',
+    nodejsClientVersion: merged.fingerprint?.nodejsClientVersion || '10.3.0',
+    nodeVersion: merged.fingerprint?.nodeVersion || '22.21.1',
+    vscodeVersion: merged.fingerprint?.vscodeVersion || '1.100.3',
+    ...merged.fingerprint
+  },
+
   // Outbound proxy for API requests (residential IP / Cloudflare WARP)
   // Supports HTTP/HTTPS/SOCKS5 proxies
   // Example: "socks5://127.0.0.1:40000" or "http://user:pass@proxy.example.com:8080"

@@ -119,7 +119,8 @@ export async function streamMessage(anthropicReq, email, apiKey, res, pacingCont
   // Build request
   const resolvedReq = { ...anthropicReq, model: resolved.model };
   const payload = buildCloudCodeRequest(resolvedReq, projectId, sessionKey, session.sessionId);
-  const headers = buildHeaders(accessToken);
+  const isGeminiModel = !resolved.isClaudeModel;
+  const headers = buildHeaders(accessToken, { isGeminiModel });
 
   // Try endpoints in order
   let lastError = null;

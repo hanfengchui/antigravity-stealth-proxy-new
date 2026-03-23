@@ -28,8 +28,7 @@ export async function discoverProjectId(email) {
 
   const token = await getAccessToken(email);
   // Use exact same headers as real client (alphabetical order, no extras)
-  // Add connection: close to match real client behavior
-  const headers = { ...buildHeaders(token), connection: 'close' };
+  const headers = buildHeaders(token);
 
   const endpoints = [
     'https://cloudcode-pa.googleapis.com',

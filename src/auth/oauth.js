@@ -144,7 +144,6 @@ export async function getUserInfo(accessToken) {
   // But does NOT send content-type for this GET request (confirmed by packet capture)
   const headers = buildHeaders(accessToken);
   delete headers['content-type']; // oauth2/userinfo GET has no content-type (capture confirms)
-  headers.connection = 'close';
 
   const res = await proxyFetch('https://www.googleapis.com/oauth2/v2/userinfo', {
     headers

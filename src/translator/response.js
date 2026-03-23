@@ -53,7 +53,7 @@ export function convertSSEEvent(data, state) {
         model: state.model || 'unknown',
         stop_reason: null,
         stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 }
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
       }
     });
   }
@@ -75,6 +75,10 @@ export function convertSSEEvent(data, state) {
             content_block: { type: 'thinking', thinking: '' }
           });
         }
+        // Store signature for emission when block closes
+        if (part.thoughtSignature) {
+          state.thinkingSignature = part.thoughtSignature;
+        }
         events.push({
           type: 'content_block_delta',
           index: state.thinkingIndex,
@@ -86,6 +90,14 @@ export function convertSSEEvent(data, state) {
         // Close thinking block if open
         if (state.inThinking) {
           state.inThinking = false;
+          if (state.thinkingSignature) {
+            events.push({
+              type: 'content_block_delta',
+              index: state.thinkingIndex,
+              delta: { type: 'signature_delta', signature: state.thinkingSignature }
+            });
+            state.thinkingSignature = null;
+          }
           events.push({
             type: 'content_block_stop',
             index: state.thinkingIndex
@@ -112,6 +124,14 @@ export function convertSSEEvent(data, state) {
         // Close any open blocks
         if (state.inThinking) {
           state.inThinking = false;
+          if (state.thinkingSignature) {
+            events.push({
+              type: 'content_block_delta',
+              index: state.thinkingIndex,
+              delta: { type: 'signature_delta', signature: state.thinkingSignature }
+            });
+            state.thinkingSignature = null;
+          }
           events.push({ type: 'content_block_stop', index: state.thinkingIndex });
         }
         if (state.inText) {
@@ -120,7 +140,7 @@ export function convertSSEEvent(data, state) {
         }
 
         const toolIndex = state.blockIndex++;
-        const toolId = `toolu_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+        const toolId = part.functionCall.id || `toolu_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
         events.push({
           type: 'content_block_start',
           index: toolIndex,
@@ -168,6 +188,13 @@ export function buildStreamEnd(state) {
 
   // Close any open blocks
   if (state.inThinking) {
+    if (state.thinkingSignature) {
+      events.push({
+        type: 'content_block_delta',
+        index: state.thinkingIndex,
+        delta: { type: 'signature_delta', signature: state.thinkingSignature }
+      });
+    }
     events.push({ type: 'content_block_stop', index: state.thinkingIndex });
   }
   if (state.inText) {
@@ -181,7 +208,7 @@ export function buildStreamEnd(state) {
       stop_reason: state.stopReason || 'end_turn',
       stop_sequence: null
     },
-    usage: { output_tokens: state.outputTokens }
+    usage: { output_tokens: state.outputTokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
   });
 
   events.push({ type: 'message_stop' });
@@ -203,6 +230,7 @@ export function createStreamState(model) {
     inThinking: false,
     inText: false,
     thinkingIndex: -1,
+    thinkingSignature: null,
     textIndex: -1,
     stopReason: null,
     inputTokens: 0,
